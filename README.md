@@ -15,10 +15,10 @@ list and Registry render the typed table UI now and gracefully show
 
 This app does **not** hand-write API shapes or point a codegen tool at a
 running server. It depends on
-[`@brandonrc/mobula-client`](../mobula/clients/typescript) — a TypeScript
-client generated from mobula's committed `openapi.json` (CI drift-guards
-that spec against the Rust code) and published to the GitHub Packages npm
-registry on every mobula `v*` tag. `src/lib/api.ts` re-exports those types.
+`@brandonrc/mobula-client` — a TypeScript client generated and published by
+the [mobula-api](https://github.com/brandonrc/mobula-api) pipeline from
+mobula's OpenAPI spec (the Rust code is the source of truth). It republishes
+to the GitHub Packages npm registry whenever the API changes. `src/lib/api.ts` re-exports those types.
 
 GitHub Packages npm requires a token even for public packages, so `.npmrc`
 reads `NODE_AUTH_TOKEN`:
@@ -61,7 +61,9 @@ npm run dev        # http://localhost:5173
 | `npm run build`   | Type-check (`tsc -b`) + production build to `dist/`                    |
 | `npm test`        | Vitest unit tests                                                      |
 | `npm run lint`    | ESLint (flat config)                                                   |
-| `npm run gen:types` | Generate `src/lib/api-types.gen.ts` from the live OpenAPI doc (`/api/v1/openapi.json`); requires `mobula serve` running. Output is gitignored. |
+
+API types are not generated here — they come from the published
+`@brandonrc/mobula-client` package (see above).
 
 ## Auth (dev mode only, for now)
 
