@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { api } from '@/lib/api'
+import { api, clusterViewState } from '@/lib/api'
 
 function StatCard({ title, value }: { title: string; value: string }) {
   return (
@@ -44,7 +44,9 @@ export function OverviewPage() {
     refetchInterval: 30_000,
   })
   const clusters = clustersQuery.data
-  const running = clusters?.filter((c) => c.state === 'running').length
+  const running = clusters?.filter(
+    (c) => clusterViewState(c) === 'running',
+  ).length
 
   return (
     <>
@@ -94,14 +96,14 @@ export function OverviewPage() {
                           to={`/clusters/${cluster.id}`}
                           className="font-medium hover:underline"
                         >
-                          {cluster.name}
+                          {cluster.id}
                         </Link>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {cluster.project ?? '—'}
+                        {cluster.project}
                       </TableCell>
                       <TableCell>
-                        <ClusterStateBadge state={cluster.state} />
+                        <ClusterStateBadge state={clusterViewState(cluster)} />
                       </TableCell>
                     </TableRow>
                   ))}

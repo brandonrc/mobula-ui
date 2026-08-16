@@ -7,48 +7,43 @@ import { DataTable } from '@/components/data-table'
 import { ApiErrorState, EmptyState } from '@/components/empty-state'
 import { PageHeader } from '@/components/page-header'
 import { Button } from '@/components/ui/button'
-import { api } from '@/lib/api'
-import type { ClusterSummary } from '@/lib/api'
+import { api, clusterViewState } from '@/lib/api'
+import type { ClusterView } from '@/lib/api'
 
-const columns: ColumnDef<ClusterSummary>[] = [
+const columns: ColumnDef<ClusterView>[] = [
   {
-    accessorKey: 'name',
+    accessorKey: 'id',
     header: 'Name',
     cell: ({ row }) => (
       <Link
         to={`/clusters/${row.original.id}`}
         className="font-medium hover:underline"
       >
-        {row.original.name}
+        {row.original.id}
       </Link>
     ),
   },
   {
     accessorKey: 'project',
     header: 'Project',
-    cell: ({ row }) => row.original.project ?? '—',
+    cell: ({ row }) => row.original.project,
   },
   {
-    accessorKey: 'state',
+    accessorKey: 'observedState',
     header: 'State',
-    cell: ({ row }) => <ClusterStateBadge state={row.original.state} />,
+    cell: ({ row }) => <ClusterStateBadge state={clusterViewState(row.original)} />,
   },
   {
-    accessorKey: 'ray_version',
+    accessorKey: 'rayVersion',
     header: 'Ray',
-    cell: ({ row }) => row.original.ray_version ?? '—',
+    cell: ({ row }) => row.original.rayVersion,
   },
   {
-    accessorKey: 'image',
-    header: 'Image',
+    accessorKey: 'generation',
+    header: 'Gen',
     cell: ({ row }) => (
-      <span className="font-mono text-xs">{row.original.image ?? '—'}</span>
+      <span className="font-mono text-xs">{row.original.generation}</span>
     ),
-  },
-  {
-    accessorKey: 'created_at',
-    header: 'Created',
-    cell: ({ row }) => row.original.created_at ?? '—',
   },
 ]
 

@@ -1,6 +1,19 @@
 import { describe, expect, it } from 'vitest'
 
-import { MobulaApiError, rolesFromErrorBody } from './api'
+import { MobulaApiError, clusterViewState, rolesFromErrorBody } from './api'
+import type { ClusterView } from './api'
+
+function view(overrides: Partial<ClusterView> = {}): ClusterView {
+  return {
+    id: 'c1',
+    project: 'demo',
+    rayVersion: '2.57.0',
+    generation: 1,
+    observedGeneration: 1,
+    desired: 'running',
+    ...overrides,
+  }
+}
 
 describe('rolesFromErrorBody', () => {
   it('extracts required/granted role from snake_case bodies (spec §5.10)', () => {
@@ -78,5 +91,28 @@ describe('MobulaApiError', () => {
       new MobulaApiError({ kind: 'http', status: 404, message: 'not found' })
         .isUnavailable,
     ).toBe(false)
+  })
+})
+
+describe('clusterViewState', () => {
+  it('prefers observed_state when it is a known state', () => {
+    expect(
+      clusterViewState(view({ observedState: 'running', desired: 'suspended' })),
+    ).toBe('running')
+  })
+
+  it('falls back to desired before the cluster is first observed', () => {
+    expect(clusterViewState(view({ observedState: null, desired: 'provisioning' }))).toBe(
+      'provisioning',
+    )
+    expect(clusterViewState(view({ observedState: undefined, desired: 'terminating' }))).toBe(
+      'terminating',
+    )
+  })
+
+  it('falls back to pending when neither is a known state', () => {
+    expect(clusterViewState(view({ observedState: 'gibberish', desired: 'nonsense' }))).toBe(
+      'pending',
+    )
   })
 })

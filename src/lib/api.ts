@@ -12,9 +12,15 @@
  * 404 — render that as a "not implemented yet" empty state, not a crash.
  */
 
+import {
+  ClustersApi,
+  Configuration,
+  ResponseError,
+  SystemApi,
+} from '@brandonrc/mobula-client'
 import type { ClusterView, ServiceView, VersionInfo } from '@brandonrc/mobula-client'
 
-import type { ClusterState } from './cluster-state'
+import { isClusterState, type ClusterState } from './cluster-state'
 
 // Canonical API shapes, re-exported from the generated client.
 export type { ClusterView, ServiceView, VersionInfo }
@@ -55,22 +61,16 @@ export interface RegistryCluster {
 }
 
 /**
- * UI-ahead view model. `GET /api/v1/clusters` now EXISTS and returns
- * `ClusterView` (imported above), which differs from this: ClusterView has
- * `id`/`generation`/`desired`/`observed_state`/`project`/`ray_version`/
- * `est_*_hourly` — no `name`/`state`/`created_at`. MIGRATION: point the
- * cluster list/overview screens at `ClusterView`, mapping `observed_state`
- * → the state badge and `id` → the display name, then delete this type and
- * change `api.clusters()` to `ClusterView[]`.
+ * A `ClusterView`'s state for display. The backend's `observed_state` is
+ * null until the reconciler first observes the cluster, so fall back to the
+ * `desired` state, then to `pending`. Every cluster badge in the UI routes
+ * through here so the mapping from the wire shape to the nine renderable
+ * `ClusterState`s lives in exactly one place.
  */
-export interface ClusterSummary {
-  id: string
-  name: string
-  project?: string | null
-  state: ClusterState
-  ray_version?: string | null
-  image?: string | null
-  created_at?: string | null
+export function clusterViewState(view: ClusterView): ClusterState {
+  if (isClusterState(view.observedState)) return view.observedState
+  if (isClusterState(view.desired)) return view.desired
+  return 'pending'
 }
 
 export interface MobulaApiErrorInit {
@@ -209,33 +209,58 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (text ? JSON.parse(text) : undefined) as T
 }
 
-/** `/healthz` returns the plain-text body "ok", not JSON. */
-async function requestText(path: string): Promise<string> {
-  let res: Response
-  try {
-    res = await fetch(path)
-  } catch {
-    throw new MobulaApiError({
-      kind: 'network',
-      status: 0,
-      message:
-        'Cannot reach the Mobula control plane. Start it with `mobula serve --dev-allow-unauthenticated`.',
-    })
-  }
-  if (!res.ok) {
-    throw new MobulaApiError({
+/**
+ * Turn a thrown value from the generated client into a `MobulaApiError`.
+ * The client throws `ResponseError` (carrying the raw `Response`) on a
+ * non-2xx status and `FetchError` when the network call itself fails; both
+ * become the fail-closed shape the UI already knows how to render.
+ */
+async function toMobulaError(err: unknown): Promise<MobulaApiError> {
+  if (err instanceof MobulaApiError) return err
+  if (err instanceof ResponseError) {
+    const body = await err.response.json().catch(() => undefined)
+    return new MobulaApiError({
       kind: 'http',
-      status: res.status,
-      message: `Request failed: ${res.status} ${res.statusText}`,
+      status: err.response.status,
+      message:
+        messageFromErrorBody(body) ??
+        `Request failed: ${err.response.status} ${err.response.statusText}`,
+      ...rolesFromErrorBody(body),
     })
   }
-  return res.text()
+  // A client-wrapped `FetchError` (network reject) or anything unexpected:
+  // the control plane is unreachable.
+  return new MobulaApiError({
+    kind: 'network',
+    status: 0,
+    message:
+      'Cannot reach the Mobula control plane. Start it with `mobula serve --dev-allow-unauthenticated`.',
+  })
 }
 
+/** Run a generated-client call, normalizing any failure to `MobulaApiError`. */
+async function call<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (err) {
+    throw await toMobulaError(err)
+  }
+}
+
+// One shared client. `basePath: ''` makes the generated client issue
+// relative URLs (`/api/v1/clusters`) against the UI's own origin — the Vite
+// dev proxy and the production deploy both serve the API there. (Its default
+// basePath is `http://localhost`, which would be wrong in the browser.)
+const config = new Configuration({ basePath: '' })
+const clustersApi = new ClustersApi(config)
+const systemApi = new SystemApi(config)
+
 export const api = {
-  healthz: () => requestText('/healthz'),
-  version: () => request<VersionInfo>('/api/v1/version'),
+  healthz: () => call(() => systemApi.healthz()),
+  version: () => call(() => systemApi.version()),
+  clusters: () => call(() => clustersApi.listClusters()),
+  // UI-ahead: no generated endpoint yet — hand-fetched and 404 until the
+  // backend adds them (see the `Identity` / `RegistryCluster` notes above).
   identity: () => request<Identity>('/api/v1/identity'),
-  clusters: () => request<ClusterSummary[]>('/api/v1/clusters'),
   registryClusters: () => request<RegistryCluster[]>('/api/v1/registry/clusters'),
 }
