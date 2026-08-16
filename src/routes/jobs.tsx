@@ -1,13 +1,63 @@
-import { EmptyState } from '@/components/empty-state'
+import { useQuery } from '@tanstack/react-query'
+
+import { ApiErrorState, EmptyState } from '@/components/empty-state'
 import { PageHeader } from '@/components/page-header'
+import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { api } from '@/lib/api'
+import { cn } from '@/lib/utils'
+
+/** Ray job status → badge classes (Nebari-tinted semantic colors). */
+function statusClasses(status: string): string {
+  switch (status.toUpperCase()) {
+    case 'SUCCEEDED':
+      return 'border-transparent bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+    case 'RUNNING':
+      return 'border-transparent bg-blue-500/15 text-blue-600 dark:text-blue-400'
+    case 'FAILED':
+      return 'border-transparent bg-red-500/15 text-red-600 dark:text-red-400'
+    case 'PENDING':
+      return 'border-transparent bg-amber-500/15 text-amber-600 dark:text-amber-400'
+    default: // STOPPED and anything else
+      return 'border-transparent bg-muted text-muted-foreground'
+  }
+}
+
+function fmtDuration(secs: number | null): string {
+  if (secs == null) return '—'
+  if (secs < 60) return `${secs}s`
+  const m = Math.floor(secs / 60)
+  const s = secs % 60
+  if (m < 60) return `${m}m ${s}s`
+  const h = Math.floor(m / 60)
+  return `${h}h ${m % 60}m`
+}
+
+function fmtWhen(unixSecs: number): string {
+  return new Date(unixSecs * 1000).toLocaleString()
+}
 
 /**
- * Global job history (spec §5.5). The persistent cross-cluster table lands
- * with Phase 3 Postgres (GET /api/v1/jobs). Submission stays CLI-first (D4)
- * — the UI will teach the `ray job submit` path rather than replace it.
+ * Global job history (spec §5.5). The persistent, cross-cluster table is
+ * backed by `GET /api/v1/jobs` (Phase 3 Postgres); records outlive the
+ * clusters that ran them. Submission stays CLI-first (D4).
  */
 export function JobsPage() {
+  const query = useQuery({
+    queryKey: ['jobs'],
+    queryFn: api.jobs,
+    retry: false,
+    refetchInterval: 15_000,
+  })
+
   return (
     <>
       <PageHeader
@@ -21,10 +71,49 @@ export function JobsPage() {
             <CardTitle>Job history</CardTitle>
           </CardHeader>
           <CardContent>
-            <EmptyState
-              title="History arrives with Phase 3"
-              description="Job records (id, cluster, submitter, Ray status, duration, submitted-at) will be stored in Mobula's Postgres and listed here, surviving the clusters that ran them."
-            />
+            {query.isPending ? (
+              <p className="text-sm text-muted-foreground">Loading…</p>
+            ) : query.isError ? (
+              <ApiErrorState error={query.error} onRetry={() => query.refetch()} />
+            ) : query.data.length === 0 ? (
+              <EmptyState
+                title="No jobs yet"
+                description="Submit a job through Mobula's gateway (see the panel on the right) and it will appear here — and stay here after its cluster is gone."
+              />
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Job</TableHead>
+                    <TableHead>Cluster</TableHead>
+                    <TableHead>Submitter</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Duration</TableHead>
+                    <TableHead>Submitted</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {query.data.map((job) => (
+                    <TableRow key={job.id}>
+                      <TableCell className="font-mono text-xs">{job.id}</TableCell>
+                      <TableCell>{job.cluster}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {job.submitter}
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={cn('font-medium', statusClasses(job.status))}>
+                          {job.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{fmtDuration(job.duration_secs)}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {fmtWhen(job.submitted_at)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
 

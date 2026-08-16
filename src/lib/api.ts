@@ -255,10 +255,28 @@ const config = new Configuration({ basePath: '' })
 const clustersApi = new ClustersApi(config)
 const systemApi = new SystemApi(config)
 
+/**
+ * A job in the persistent, cross-cluster history (`GET /api/v1/jobs`, Phase
+ * 3). Records outlive the clusters that ran them, so `cluster` may name a
+ * cluster that no longer exists.
+ */
+export interface JobView {
+  id: string
+  cluster: string
+  submitter: string
+  /** Ray job status: PENDING | RUNNING | SUCCEEDED | FAILED | STOPPED. */
+  status: string
+  /** Wall-clock seconds once terminal; `null` while running. */
+  duration_secs: number | null
+  /** Unix seconds when the job was submitted. */
+  submitted_at: number
+}
+
 export const api = {
   healthz: () => call(() => systemApi.healthz()),
   version: () => call(() => systemApi.version()),
   clusters: () => call(() => clustersApi.listClusters()),
+  jobs: () => request<JobView[]>('/api/v1/jobs'),
   // UI-ahead: no generated endpoint yet — hand-fetched and 404 until the
   // backend adds them (see the `Identity` / `RegistryCluster` notes above).
   identity: () => request<Identity>('/api/v1/identity'),
