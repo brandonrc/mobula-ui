@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Generated typed client (deploy/up.sh) — vendored only for the docker build
+vendor/
