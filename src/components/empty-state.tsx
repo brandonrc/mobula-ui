@@ -1,9 +1,11 @@
-import { CloudOff, Lock, PackageOpen, SearchX, TriangleAlert } from 'lucide-react'
+import { CloudOff, Lock, LogIn, PackageOpen, SearchX, TriangleAlert } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { Link } from 'react-router'
 
 import { Button } from '@/components/ui/button'
 import { MobulaApiError } from '@/lib/api'
+import { startSsoSignIn } from '@/lib/pkce'
 
 /**
  * Shared empty/error state (spec §6). Every list has first-run, no-results,
@@ -37,9 +39,11 @@ export function EmptyState({
 
 /**
  * Maps a failed TanStack Query error to the right empty-state variant:
- * network failure → backend-unreachable, 404 → not-implemented-yet (the
- * Phase 3 management API from spec §8 hasn't landed), 403 →
- * permission-denied with required vs granted role (spec §1.4.6, §5.10).
+ * network failure → backend-unreachable, 401 → sign-in-required (the one
+ * shared handling point for auth-enabled backends), 404 →
+ * not-implemented-yet (the Phase 3 management API from spec §8 hasn't
+ * landed), 403 → permission-denied with required vs granted role
+ * (spec §1.4.6, §5.10).
  */
 export function ApiErrorState({
   error,
@@ -55,6 +59,33 @@ export function ApiErrorState({
   ) : undefined
 
   if (error instanceof MobulaApiError) {
+    if (error.isUnauthorized) {
+      return (
+        <EmptyState
+          icon={LogIn}
+          title="Sign in required"
+          description="This control plane requires authentication. Sign in to continue."
+          action={
+            <>
+              <Button
+                size="sm"
+                onClick={() =>
+                  // Return to this page after the SSO round-trip.
+                  void startSsoSignIn(
+                    `${window.location.pathname}${window.location.search}`,
+                  )
+                }
+              >
+                Sign in with SSO
+              </Button>
+              <Button asChild size="sm" variant="outline">
+                <Link to="/login">Use an API token</Link>
+              </Button>
+            </>
+          }
+        />
+      )
+    }
     if (error.isForbidden) {
       return (
         <EmptyState

@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { api } from '@/lib/api'
 import type { Identity } from '@/lib/api'
+import { getSessionMeta } from '@/lib/auth-token'
 
 function IdentityCard({ identity, source }: { identity: Identity; source: string }) {
   return (
@@ -55,12 +56,31 @@ function IdentityCard({ identity, source }: { identity: Identity; source: string
  * view of the effective role mappings, which stay in auth.toml + restart.
  */
 export function AccessPage() {
-  const { identity: devIdentity, devAuth } = useAuth()
+  const { identity: sessionIdentity, sessionSource } = useAuth()
   const query = useQuery({
     queryKey: ['identity'],
     queryFn: api.identity,
     retry: false,
   })
+
+  const sessionNote = (() => {
+    switch (sessionSource) {
+      case 'sso':
+        return 'Decoded client-side from the SSO token (the backend validates the signature).'
+      case 'local': {
+        const expiresAt = getSessionMeta()?.expiresAt
+        const expiry =
+          expiresAt != null
+            ? ` Token expires ${new Date(expiresAt * 1000).toLocaleString()}.`
+            : ''
+        return `Signed in via local auth (ADR-0011); identity reported by the login response.${expiry}`
+      }
+      case 'pat':
+        return 'Decoded client-side from the pasted token (the backend validates the signature).'
+      default:
+        return 'Dev-mode stub identity (VITE_MOBULA_DEV_AUTH) — shown until /api/v1/identity and OIDC login exist.'
+    }
+  })()
 
   return (
     <>
@@ -80,11 +100,8 @@ export function AccessPage() {
         ) : (
           <div className="space-y-4">
             <ApiErrorState error={query.error} onRetry={() => query.refetch()} />
-            {devAuth && devIdentity ? (
-              <IdentityCard
-                identity={devIdentity}
-                source="Dev-mode stub identity (VITE_MOBULA_DEV_AUTH) — shown until /api/v1/identity and OIDC login exist."
-              />
+            {sessionIdentity ? (
+              <IdentityCard identity={sessionIdentity} source={sessionNote} />
             ) : null}
           </div>
         )}

@@ -1,7 +1,10 @@
 import {
   Boxes,
+  ChartColumn,
   LayoutDashboard,
+  Layers,
   ListChecks,
+  Rocket,
   ScrollText,
   Settings,
   SquareTerminal,
@@ -23,6 +26,9 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
   { to: '/clusters', label: 'Clusters', icon: Boxes },
+  { to: '/services', label: 'Services', icon: Rocket },
+  { to: '/pools', label: 'Pools', icon: Layers },
+  { to: '/usage', label: 'Usage', icon: ChartColumn },
   { to: '/jobs', label: 'Jobs', icon: ListChecks },
   { to: '/registry', label: 'Registry', icon: SquareTerminal },
   { to: '/audit', label: 'Audit', icon: ScrollText },

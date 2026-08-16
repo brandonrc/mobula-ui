@@ -31,7 +31,7 @@ function statusClasses(status: string): string {
   }
 }
 
-function fmtDuration(secs: number | null): string {
+function fmtDuration(secs: number | null | undefined): string {
   if (secs == null) return '—'
   if (secs < 60) return `${secs}s`
   const m = Math.floor(secs / 60)
@@ -105,9 +105,9 @@ export function JobsPage() {
                           {job.status}
                         </Badge>
                       </TableCell>
-                      <TableCell>{fmtDuration(job.duration_secs)}</TableCell>
+                      <TableCell>{fmtDuration(job.durationSecs)}</TableCell>
                       <TableCell className="text-muted-foreground">
-                        {fmtWhen(job.submitted_at)}
+                        {fmtWhen(job.submittedAt)}
                       </TableCell>
                     </TableRow>
                   ))}

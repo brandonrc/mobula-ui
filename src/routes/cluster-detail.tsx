@@ -1,43 +1,248 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
-import { useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 
-import { EmptyState } from '@/components/empty-state'
+import { useCanManageClusters } from '@/auth/permissions'
+import { ClusterStateBadge } from '@/components/cluster-state-badge'
+import { ApiErrorState, EmptyState } from '@/components/empty-state'
 import { PageHeader } from '@/components/page-header'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { api, clusterViewState } from '@/lib/api'
+import type { ClusterView } from '@/lib/api'
+import {
+  conditionPresentation,
+  formatHourlyCost,
+  generationDrift,
+} from '@/lib/clusters'
 import { cn } from '@/lib/utils'
 
 /**
- * Cluster detail (spec §5.4). Tab layout is in place; the tab contents land
- * with Milestones B (overview, nodes, config) and C (jobs, logs).
+ * Tab layout from spec §5.4. Only Overview has a backend today
+ * (`GET /api/v1/clusters/{id}`); the rest are specced in api-v1.md but
+ * unbacked, so they render an explicit pending-backend empty state rather
+ * than a mock.
  */
 const TABS = [
-  { id: 'overview', label: 'Overview', note: 'Desired spec vs observed state, endpoints, and the transition timeline arrive with GET /api/v1/clusters/{id} (Milestone B).' },
-  { id: 'nodes', label: 'Nodes', note: 'Head + worker-group breakdown. Scale is group-level (D2) — there is no "add node" button, there is "edit worker group".' },
-  { id: 'jobs', label: 'Jobs', note: 'Live jobs for this cluster via the control-plane proxy (Milestone C) — never raw Ray dashboard URLs.' },
-  { id: 'logs', label: 'Logs', note: 'Streaming log viewer over the control-plane WS bridge (Milestone C).' },
-  { id: 'metrics', label: 'Metrics', note: 'Native Ray-API views plus Grafana deep-links in a new tab (D3: no iframes anywhere).' },
-  { id: 'events', label: 'Events', note: 'Per-cluster audit/transition stream (JSONL today, Postgres-backed with Phase 3).' },
-  { id: 'config', label: 'Config', note: 'Effective spec + registry entry; masked token with rotate control for Admins (Milestone B).' },
+  { id: 'overview', label: 'Overview', note: '' },
+  { id: 'nodes', label: 'Nodes', note: 'Head + worker-group breakdown. Pending backend — needs GET /api/v1/clusters/{id}/nodes (api-v1.md §5.3, observability-only per D2: scale is group-level, there is no "add node" button).' },
+  { id: 'jobs', label: 'Jobs', note: 'Live jobs for this cluster. Pending backend — the browser-consumable path-based proxy (/api/v1/clusters/{id}/jobs…, api-v1.md §5.6, Milestone C) is not built yet; the UI never constructs raw Ray dashboard URLs.' },
+  { id: 'logs', label: 'Logs', note: 'Streaming log viewer. Pending backend — needs the control-plane WS endpoint (api-v1.md §5.6, Milestone C).' },
+  { id: 'metrics', label: 'Metrics', note: 'Native metric views and Grafana deep-links. Pending backend — no per-cluster metrics endpoint exists yet.' },
+  { id: 'events', label: 'Events', note: 'Per-cluster audit/transition stream. Pending backend — needs GET /api/v1/clusters/{id}/events (api-v1.md §5.8).' },
+  { id: 'config', label: 'Config', note: 'Effective spec view + edit-via-wizard. Pending backend — ClusterView does not carry the full spec yet (api-v1.md §3.4 adds it) and PATCH /api/v1/clusters/{id} is Milestone B.' },
 ] as const
 
 type TabId = (typeof TABS)[number]['id']
 
+function Field({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="space-y-0.5">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-sm">{value}</div>
+    </div>
+  )
+}
+
+function OverviewTab({ cluster }: { cluster: ClusterView }) {
+  const condition = conditionPresentation(cluster.condition)
+  const drift = generationDrift(cluster)
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle>State</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label="Observed state"
+            value={
+              cluster.observedState ? (
+                <ClusterStateBadge state={clusterViewState(cluster)} />
+              ) : (
+                <span className="text-muted-foreground">
+                  not reconciled yet
+                </span>
+              )
+            }
+          />
+          <Field label="Desired" value={cluster.desired} />
+          <Field
+            label="Spec generation"
+            value={
+              <span className="font-mono text-xs">{cluster.generation}</span>
+            }
+          />
+          <Field
+            label="Observed generation"
+            value={
+              <span className="font-mono text-xs">
+                {cluster.observedGeneration}
+                {drift ? (
+                  <span className="ml-2 text-amber-600 dark:text-amber-400">
+                    reconcile in progress
+                  </span>
+                ) : null}
+              </span>
+            }
+          />
+          <Field
+            label="Condition"
+            value={
+              condition ? (
+                <Badge variant="outline" title={condition.tooltip}>
+                  <TriangleAlert className="text-amber-500" aria-hidden />
+                  {condition.label}
+                </Badge>
+              ) : (
+                <span className="text-muted-foreground">none</span>
+              )
+            }
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Spec metadata</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <Field label="Project" value={cluster.project} />
+          <Field
+            label="Ray version"
+            value={<span className="font-mono text-xs">{cluster.rayVersion}</span>}
+          />
+          <Field
+            label="Est. min cost"
+            value={formatHourlyCost(cluster.estMinHourly)}
+          />
+          <Field
+            label="Est. max cost"
+            value={formatHourlyCost(cluster.estMaxHourly)}
+          />
+        </CardContent>
+      </Card>
+
+      {cluster.estMinHourly == null && cluster.estMaxHourly == null ? (
+        <p className="text-xs text-muted-foreground lg:col-span-2">
+          Cost estimates need a price sheet configured on the control plane
+          (PolicyConfig.prices) — none is set, so estimates are unavailable.
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * Cluster detail (spec §5.4), backed by the implemented
+ * `GET /api/v1/clusters/{id}`. ClusterView is metadata-only today (no full
+ * spec, no created_at — api-v1.md §3.4 adds both), so Overview renders the
+ * fields the wire actually has. Terminate is the one implemented lifecycle
+ * action; Suspend/Resume/Edit remain pending backend (Milestone B).
+ */
 export function ClusterDetailPage() {
-  const { clusterId } = useParams<{ clusterId: string }>()
+  const { clusterId = '' } = useParams<{ clusterId: string }>()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const canManage = useCanManageClusters()
   const [activeTab, setActiveTab] = useState<TabId>('overview')
+  const [confirmTerminate, setConfirmTerminate] = useState(false)
+  const [terminateError, setTerminateError] = useState<string | null>(null)
   const tab = TABS.find((t) => t.id === activeTab) ?? TABS[0]
+
+  const query = useQuery({
+    queryKey: ['clusters', clusterId],
+    queryFn: () => api.cluster(clusterId),
+    retry: false,
+    refetchInterval: 15_000,
+  })
+
+  const terminateMutation = useMutation({
+    mutationFn: () => api.deleteCluster(clusterId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['clusters'] })
+      navigate('/clusters')
+    },
+    onError: (err) => {
+      setTerminateError(err instanceof Error ? err.message : String(err))
+    },
+  })
+
+  if (query.isError) {
+    return (
+      <>
+        <PageHeader title={`Cluster ${clusterId}`} />
+        <ApiErrorState error={query.error} onRetry={() => query.refetch()} />
+      </>
+    )
+  }
+
+  const cluster = query.data
+  const condition = cluster ? conditionPresentation(cluster.condition) : null
+  const drift = cluster ? generationDrift(cluster) : false
 
   return (
     <>
       <PageHeader
-        title={clusterId ?? 'Cluster'}
+        title={cluster ? `Cluster ${cluster.id}` : `Cluster ${clusterId}`}
         description={
-          <>
-            {/* State-machine fidelity (spec §1.4.1): we show no state badge
-                until the API reports one — never an invented state. */}
-            State and actions render once the Phase 3 detail endpoint exists.{' '}
-            <Badge variant="muted">state unavailable</Badge>
-          </>
+          cluster ? (
+            <span className="flex flex-wrap items-center gap-2">
+              <ClusterStateBadge state={clusterViewState(cluster)} />
+              <Badge variant="outline">project {cluster.project}</Badge>
+              <Badge variant="outline">ray {cluster.rayVersion}</Badge>
+              <Badge variant="outline" title="spec generation → observed generation">
+                gen {cluster.generation} → {cluster.observedGeneration}
+              </Badge>
+              {drift ? (
+                <Badge
+                  variant="outline"
+                  className="border-amber-500/50 text-amber-600 dark:text-amber-400"
+                >
+                  reconcile in progress
+                </Badge>
+              ) : null}
+              {condition ? (
+                <Badge
+                  variant="outline"
+                  title={condition.tooltip}
+                  className="border-amber-500/50 text-amber-600 dark:text-amber-400"
+                >
+                  <TriangleAlert className="text-amber-500" aria-hidden />
+                  {condition.label}
+                </Badge>
+              ) : null}
+            </span>
+          ) : undefined
+        }
+        actions={
+          <div className="flex gap-2">
+            <Button asChild size="sm" variant="outline">
+              <Link to="/clusters">All clusters</Link>
+            </Button>
+            {canManage ? (
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => {
+                  setTerminateError(null)
+                  setConfirmTerminate(true)
+                }}
+              >
+                Terminate
+              </Button>
+            ) : null}
+          </div>
         }
       />
 
@@ -58,7 +263,53 @@ export function ClusterDetailPage() {
         ))}
       </div>
 
-      <EmptyState title={`${tab.label} — coming soon`} description={tab.note} />
+      {query.isPending ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : cluster && activeTab === 'overview' ? (
+        <OverviewTab cluster={cluster} />
+      ) : (
+        <EmptyState
+          title={`${tab.label} — pending backend`}
+          description={tab.note}
+        />
+      )}
+
+      <Dialog
+        open={confirmTerminate}
+        onOpenChange={(open) => {
+          if (!open) setConfirmTerminate(false)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Terminate cluster {clusterId}?</DialogTitle>
+            <DialogDescription>
+              The cluster is marked for termination and the reconcile engine
+              tears it down (DELETE returns 202). This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {terminateError ? (
+            <p className="text-sm text-destructive">{terminateError}</p>
+          ) : null}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmTerminate(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={terminateMutation.isPending}
+              onClick={() => terminateMutation.mutate()}
+            >
+              {terminateMutation.isPending ? 'Terminating…' : 'Terminate cluster'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

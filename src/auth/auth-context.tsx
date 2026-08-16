@@ -1,16 +1,36 @@
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import type { Identity } from '@/lib/api'
+import type { SessionSource } from '@/lib/auth-token'
+import {
+  SESSION_EXPIRED_EVENT,
+  getCurrentToken,
+  getRefreshToken,
+  getSessionMeta,
+  identityFromToken,
+  issuerBase,
+  resolveSession,
+  setCurrentToken,
+  setRefreshToken,
+  setSessionMeta,
+} from '@/lib/auth-token'
+import { refreshTokens } from '@/lib/pkce'
 
 /**
- * Milestone A auth stub (spec §5.10).
+ * Auth session (spec §5.10). Sign-in paths: SSO redirect (Authorization
+ * Code + PKCE against the OIDC issuer — `src/lib/pkce.ts`), local
+ * username/password auth (ADR-0011, opaque tokens), or a pasted JWT (the
+ * "advanced" path on /login). The backend-mediated session endpoints in
+ * api-v1.md §5.11 remain the future standalone-mode contract.
  *
- * Real web login is OIDC Authorization Code + PKCE, which the backend does
- * not implement yet. Until then the UI runs in dev mode, mirroring
- * `mobula serve --dev-allow-unauthenticated`: when the feature flag is on,
- * the shell assumes a fake Admin identity so role-shaped UI can be built
- * against it. PKCE is deliberately NOT implemented here.
+ * Precedence: a stored token becomes the session (JWTs decode client-side;
+ * opaque local tokens use the login-time identity stored in the session
+ * meta); with no usable access token but a stored refresh token, a silent
+ * refresh is attempted before falling back to signed out; with no token at
+ * all, the dev stub below mirrors `mobula serve --dev-allow-unauthenticated`
+ * when the feature flag is on. JWTs are decoded without signature
+ * verification — the backend validates on every request.
  */
 export function isDevAuthEnabled(): boolean {
   const flag = import.meta.env.VITE_MOBULA_DEV_AUTH
@@ -28,25 +48,140 @@ const DEV_IDENTITY: Identity = {
 }
 
 interface AuthContextValue {
-  /** The current caller, or null when dev auth is disabled (pre-PKCE). */
+  /** The current caller, or null when signed out. */
   identity: Identity | null
   devAuth: boolean
+  /**
+   * Where the identity came from: SSO redirect, local auth (ADR-0011), a
+   * pasted token, the dev stub, or nobody. Drives the sign-out path
+   * (`planSignOut` in src/lib/providers.ts).
+   */
+  sessionSource: SessionSource
+  /**
+   * Adopt a JWT as the session (SSO code exchange or paste); returns null
+   * if malformed/expired. `kind: 'sso'` records the issuer for refresh and
+   * logout; omitting options (paste) clears any stored refresh token.
+   */
+  signIn: (
+    token: string,
+    options?: { refreshToken?: string; kind?: 'sso' | 'pat'; issuer?: string },
+  ) => Identity | null
+  /**
+   * Adopt an opaque local-auth token (ADR-0011); the login response's
+   * identity becomes the session identity (no client-side decode possible).
+   */
+  signInLocal: (token: string, identity: Identity, expiresAt?: number) => Identity
+  /** Clear the session locally (token, refresh token, meta); callers handle revocation/redirects. */
+  signOut: () => void
 }
 
 const AuthContext = createContext<AuthContextValue>({
   identity: null,
   devAuth: false,
+  sessionSource: 'none',
+  signIn: () => null,
+  signInLocal: (_token, identity) => identity,
+  signOut: () => {},
 })
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const devAuth = isDevAuthEnabled()
-  return (
-    <AuthContext.Provider
-      value={{ identity: devAuth ? DEV_IDENTITY : null, devAuth }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const [token, setToken] = useState<string | null>(() => getCurrentToken())
+
+  // Silent refresh (SSO sessions only): no usable access token (absent or
+  // expired) but a stored refresh token → try grant_type=refresh_token once
+  // on load before falling back to signed out, against the issuer recorded
+  // in the session meta. On rejection the whole session is cleared; on a
+  // network error the refresh token is kept for next load.
+  useEffect(() => {
+    if (getCurrentToken() != null) return
+    const stored = getRefreshToken()
+    if (stored == null) return
+    let cancelled = false
+    refreshTokens(stored, getSessionMeta()?.issuer ?? issuerBase())
+      .then((tokens) => {
+        if (cancelled) return
+        if (tokens == null || identityFromToken(tokens.access_token) == null) {
+          setCurrentToken(null)
+          setRefreshToken(null)
+          setSessionMeta(null)
+          setToken(null)
+          return
+        }
+        setCurrentToken(tokens.access_token)
+        // Refresh-token rotation: store the new one when issued.
+        if (tokens.refresh_token != null) setRefreshToken(tokens.refresh_token)
+        setToken(tokens.access_token)
+      })
+      .catch(() => {
+        // Network blip — stay signed out for now, keep the refresh token.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // A 401 on an authenticated request means the held token is expired or
+  // revoked — drop the session so pages fall into the sign-in state.
+  useEffect(() => {
+    const onSessionExpired = () => {
+      setCurrentToken(null)
+      setRefreshToken(null)
+      setSessionMeta(null)
+      setToken(null)
+    }
+    window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired)
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired)
+  }, [])
+
+  const session = useMemo(
+    () =>
+      resolveSession({
+        token,
+        meta: getSessionMeta(),
+        devIdentity: devAuth ? DEV_IDENTITY : null,
+      }),
+    [token, devAuth],
   )
+
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      identity: session.identity,
+      devAuth,
+      sessionSource: session.source,
+      signIn: (newToken: string, options) => {
+        const trimmed = newToken.trim()
+        const identity = identityFromToken(trimmed)
+        if (identity == null) return null
+        setSessionMeta({
+          kind: options?.kind ?? 'pat',
+          issuer: options?.issuer,
+        })
+        setCurrentToken(trimmed)
+        setRefreshToken(options?.refreshToken ?? null)
+        setToken(trimmed)
+        return identity
+      },
+      signInLocal: (newToken: string, identity: Identity, expiresAt?: number) => {
+        // Opaque token — nothing to validate client-side; the login
+        // response's identity is the session identity (ADR-0011).
+        setSessionMeta({ kind: 'local', identity, expiresAt })
+        setCurrentToken(newToken)
+        setRefreshToken(null)
+        setToken(newToken)
+        return identity
+      },
+      signOut: () => {
+        setCurrentToken(null)
+        setRefreshToken(null)
+        setSessionMeta(null)
+        setToken(null)
+      },
+    }),
+    [session, devAuth],
+  )
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
 export function useAuth(): AuthContextValue {

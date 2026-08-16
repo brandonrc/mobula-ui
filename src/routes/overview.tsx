@@ -15,6 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { api, clusterViewState } from '@/lib/api'
+import { sumResourceHours, usageWindow } from '@/lib/usage'
 
 function StatCard({ title, value }: { title: string; value: string }) {
   return (
@@ -48,6 +49,29 @@ export function OverviewPage() {
     (c) => clusterViewState(c) === 'running',
   ).length
 
+  // Resource totals until GET /api/v1/overview lands: metered resource-hours
+  // over the last 24h from GET /api/v1/usage (api-v1.md §5.13). Failure or
+  // an empty report degrades back to the placeholder.
+  const usageQuery = useQuery({
+    queryKey: ['usage', 86_400],
+    queryFn: () => {
+      const { from, to } = usageWindow(86_400)
+      return api.usage(from, to)
+    },
+    retry: false,
+    refetchInterval: 60_000,
+  })
+  const gpuHours = usageQuery.data
+    ? sumResourceHours(usageQuery.data, 'nvidia.com/gpu')
+    : undefined
+  const cpuHours = usageQuery.data
+    ? sumResourceHours(usageQuery.data, 'cpu')
+    : undefined
+  const resourceHoursValue =
+    gpuHours === undefined && cpuHours === undefined
+      ? '—'
+      : `${(gpuHours ?? 0).toFixed(1)} GPU-h · ${(cpuHours ?? 0).toFixed(1)} CPU-h`
+
   return (
     <>
       <PageHeader
@@ -60,8 +84,8 @@ export function OverviewPage() {
           title="Clusters running"
           value={clusters ? `${running ?? 0} / ${clusters.length}` : '—'}
         />
-        {/* Resource totals and job stats arrive with GET /api/v1/overview (spec §8). */}
-        <StatCard title="Total GPUs / CPUs" value="—" />
+        <StatCard title="Resource-hours (24h)" value={resourceHoursValue} />
+        {/* Job stats arrive with GET /api/v1/overview (spec §8). */}
         <StatCard title="Active jobs" value="—" />
         <StatCard title="Failed jobs (24h)" value="—" />
       </div>
