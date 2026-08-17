@@ -8,9 +8,11 @@
  *
  * Endpoints that exist today: `/healthz`, `/api/v1/version`,
  * `/api/v1/clusters`, `/api/v1/services`, `/api/v1/jobs`, `/api/v1/pools`,
- * `/api/v1/usage`. Endpoints marked "UI-ahead" below (identity, registry)
- * are not in the backend/spec yet and return 404 — render that as a
- * "not implemented yet" empty state, not a crash.
+ * `/api/v1/usage`, `/api/v1/identity`, `/api/v1/access/roles`,
+ * `/api/v1/auth/*`. Endpoints marked "UI-ahead" below (registry, auth
+ * shapes not yet in the published client) are hand-fetched; where the
+ * running backend predates them they 404 — render that as a "not
+ * implemented yet" empty state, not a crash.
  */
 
 import {
@@ -80,17 +82,63 @@ export type {
 export type Role = 'viewer' | 'developer' | 'operator' | 'admin'
 
 /**
- * UI-ahead: mobula-auth `Identity` is not yet exposed as an endpoint in
- * openapi.json, so this shape can't come from the client. When the backend
- * adds `GET /api/v1/identity`, delete this and import it from the client.
- * Note `roles` is a list (a caller can hold several) — matching the
- * backend's `Vec<Role>`.
+ * `GET /api/v1/identity` exists backend-side now (access.rs: "who am I" for
+ * any authenticated caller, plus the dev identity when auth is disabled) but
+ * is not yet in the published `@brandonrc/mobula-client` — hand-written here
+ * until it is. Note `roles` is a list (a caller can hold several) — matching
+ * the backend's `Vec<Role>`.
  */
 export interface Identity {
   subject: string
   email?: string
   groups: string[]
   roles: Role[]
+}
+
+/**
+ * UI-ahead: `GET /api/v1/access/roles` (access.rs, Admin-only) is not in the
+ * published client yet — hand-written here; migrate when published.
+ * `mappings` is null with `source: "local"` in pure local-auth deployments
+ * (roles live on the user rows, ADR-0011). `editable` is always false in v1.
+ */
+export interface RoleMappingsView {
+  admin: string[]
+  operator: string[]
+  developer: string[]
+  viewer: string[]
+}
+
+export interface AccessRolesResponse {
+  mappings: RoleMappingsView | null
+  source: 'file' | 'local'
+  editable: boolean
+}
+
+/**
+ * UI-ahead: local user management (`/api/v1/auth/users`, Admin-only,
+ * `--local-auth` deployments only; api-v1.md §5.15) is not in the published
+ * client yet — hand-written here; migrate when published. Hashes never
+ * serialize; `created_at` is unix seconds.
+ */
+export interface LocalUserView {
+  username: string
+  email: string | null
+  role: Role
+  disabled: boolean
+  created_at: number
+}
+
+export interface CreateLocalUser {
+  username: string
+  email?: string
+  password: string
+  role: Role
+}
+
+export interface UpdateLocalUser {
+  role?: Role
+  disabled?: boolean
+  password?: string
 }
 
 /**
@@ -444,4 +492,28 @@ export const api = {
     }),
   authLogout: () =>
     request<void>('/api/v1/auth/logout', { method: 'POST' }),
+  /**
+   * UI-ahead: access read surface (api-v1.md §5.8) and local user
+   * management (§5.15) are implemented backend-side (access.rs,
+   * local_auth.rs) but not in the published client — hand-fetched like
+   * identity above; migrate when published. `accessRoles` and the user
+   * routes are Admin-only; the page hides them for non-admins.
+   */
+  accessRoles: () => request<AccessRolesResponse>('/api/v1/access/roles'),
+  localUsers: () => request<LocalUserView[]>('/api/v1/auth/users'),
+  createLocalUser: (body: CreateLocalUser) =>
+    request<LocalUserView>('/api/v1/auth/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  updateLocalUser: (username: string, body: UpdateLocalUser) =>
+    request<LocalUserView>(
+      `/api/v1/auth/users/${encodeURIComponent(username)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    ),
 }
