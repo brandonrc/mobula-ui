@@ -142,6 +142,28 @@ export interface UpdateLocalUser {
 }
 
 /**
+ * UI-ahead: governance policy (`/api/v1/settings/policy`, Admin-only;
+ * api-v1.md §5.16) is not in the published client yet — hand-written here;
+ * migrate when published. `source`: "file" (untouched `--policy` boot
+ * seed) | "store" (edited via PUT) | "none" (nothing configured). The PUT
+ * is section-replace: a present key replaces that section (`prices: null`
+ * clears the sheet, `quotas: {}` clears all), absent keys are untouched.
+ */
+export interface PolicyView {
+  /** resource → $/unit-hour; null when no price sheet is configured. */
+  prices: Record<string, number> | null
+  /** project → (resource → limit). Empty when no quotas are configured. */
+  quotas: Record<string, Record<string, number>>
+  source: 'file' | 'store' | 'none'
+  editable: boolean
+}
+
+export interface UpdatePolicy {
+  prices?: Record<string, number> | null
+  quotas?: Record<string, Record<string, number>>
+}
+
+/**
  * UI-ahead: no registry read endpoint exists in openapi.json yet. Import
  * from the client once the backend exposes it.
  */
@@ -516,4 +538,17 @@ export const api = {
         body: JSON.stringify(body),
       },
     ),
+  /**
+   * UI-ahead: governance policy (api-v1.md §5.16) is not in the published
+   * client — hand-fetched like the auth endpoints above; migrate when
+   * published. Admin-only; 400 bodies (negative/non-finite values) carry a
+   * plain-text message naming the key and surface verbatim in the form.
+   */
+  policy: () => request<PolicyView>('/api/v1/settings/policy'),
+  updatePolicy: (body: UpdatePolicy) =>
+    request<PolicyView>('/api/v1/settings/policy', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
 }

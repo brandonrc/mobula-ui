@@ -2,6 +2,7 @@ import { useAuth } from './auth-context'
 import { canViewAudit } from '@/lib/audit'
 import { canManageClusters } from '@/lib/clusters'
 import { canWritePools } from '@/lib/pools'
+import { canEditPolicy } from '@/lib/settings'
 import { canManageServices } from '@/lib/services'
 
 /**
@@ -44,4 +45,14 @@ export function useCanManageServices(): boolean {
 export function useCanViewAudit(): boolean {
   const { identity } = useAuth()
   return canViewAudit(identity)
+}
+
+/**
+ * The governance policy routes (settings, api-v1.md §5.16) are Admin-only —
+ * the whole page gates on this, like the audit log. Fails closed on null
+ * identity.
+ */
+export function useCanEditPolicy(): boolean {
+  const { identity } = useAuth()
+  return canEditPolicy(identity)
 }
