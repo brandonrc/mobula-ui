@@ -13,13 +13,24 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { NavLink } from 'react-router'
 
+import { useCanEditPolicy, useCanViewAudit } from '@/auth/permissions'
 import { cn } from '@/lib/utils'
+
+/** Named permission gate for an admin-only nav entry (evaluated in Sidebar). */
+type NavGate = 'audit' | 'policy'
 
 interface NavItem {
   to: string
   label: string
   icon: LucideIcon
   end?: boolean
+  /**
+   * Admin-only pages gate the nav entry with the SAME predicate the route
+   * itself uses, so the sidebar never advertises a page the caller would be
+   * bounced from. Fails closed when signed out (identity null → false), so
+   * these entries also stay hidden until sign-in completes.
+   */
+  requires?: NavGate
 }
 
 /** Information architecture from spec §4. */
@@ -31,12 +42,21 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/usage', label: 'Usage', icon: ChartColumn },
   { to: '/jobs', label: 'Jobs', icon: ListChecks },
   { to: '/registry', label: 'Registry', icon: SquareTerminal },
-  { to: '/audit', label: 'Audit', icon: ScrollText },
+  { to: '/audit', label: 'Audit', icon: ScrollText, requires: 'audit' },
   { to: '/access', label: 'Access', icon: Users },
-  { to: '/settings', label: 'Settings', icon: Settings },
+  { to: '/settings', label: 'Settings', icon: Settings, requires: 'policy' },
 ]
 
 export function Sidebar() {
+  // Hooks must run unconditionally; evaluate every gate once, then filter.
+  const gates: Record<NavGate, boolean> = {
+    audit: useCanViewAudit(),
+    policy: useCanEditPolicy(),
+  }
+  const items = NAV_ITEMS.filter(
+    (item) => item.requires == null || gates[item.requires],
+  )
+
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r bg-card">
       <div className="flex h-14 items-center gap-2 border-b px-4">
@@ -44,7 +64,7 @@ export function Sidebar() {
         <span className="text-xs text-muted-foreground">console</span>
       </div>
       <nav className="flex-1 space-y-1 p-2">
-        {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
+        {items.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
             to={to}
