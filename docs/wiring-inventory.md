@@ -4,7 +4,8 @@ Source of truth for **what is actually hooked up**: every UI surface (route /
 tab / page) → the control-plane endpoint(s) it calls → status. Keep this
 current when a surface is wired, stubbed, or made engine-aware.
 
-Last updated: 2026-08-24 (branch `feat/engine-ui` — engine-aware Ray + Dask).
+Last updated: 2026-08-24 (branch `feat/hide-terminated` — hide terminated
+clusters by default; Overview job tiles + activity wired to `GET /api/v1/jobs`).
 
 ## Status legend
 
@@ -30,8 +31,8 @@ Last updated: 2026-08-24 (branch `feat/engine-ui` — engine-aware Ray + Dask).
 
 | Surface (route) | Endpoint(s) | Status | Dask-aware? |
 | --- | --- | --- | --- |
-| Overview `/` | `GET /api/v1/clusters`, `GET /api/v1/usage` | LIVE (cluster list + 24h resource-hours). Job stat tiles ("Active jobs", "Failed jobs") are STUB until `GET /api/v1/overview` lands. Recent-activity feed STUB. | **Yes** — cluster table shows an engine badge. |
-| Clusters list `/clusters` | `GET /api/v1/clusters` | LIVE | **Yes** — new **Engine** column (badge); Ray-version column shows `—` for Dask. |
+| Overview `/` | `GET /api/v1/clusters`, `GET /api/v1/usage`, `GET /api/v1/jobs` | LIVE (cluster list + 24h resource-hours). Job stat tiles ("Active jobs", "Failed jobs (24h)") + "Recent activity" now derive from `GET /api/v1/jobs` (`src/lib/jobs.ts`): they render real counts/rows when jobs are present, degrade to `—` / a clean empty state when the list is empty. Comes alive automatically once gateway jobs are attributed backend-side (#89) — no hardcoded values. | **Yes** — cluster table shows an engine badge. |
+| Clusters list `/clusters` | `GET /api/v1/clusters` | LIVE | **Yes** — **Engine** column (badge); Ray-version column shows `—` for Dask. **Terminated clusters (tombstones) are hidden by default** (`partitionTerminated` in `src/lib/clusters.ts`); a "Show terminated" checkbox reveals them, and the count line reads "N clusters · M terminated hidden". Terminated clusters stay openable via their detail route. |
 | New cluster `/clusters/new` | `POST /api/v1/clusters` | LIVE | **Yes** — **engine selector (Ray \| Dask)**; head vs scheduler label; Ray shows `ray_version`, Dask shows image + version note; `engine` sent in POST body. |
 | Cluster detail `/clusters/:id` | `GET /api/v1/clusters/{id}` (+ tabs below) | LIVE | **Yes** — engine badge in header; Ray-version badge Ray-only; Overview shows Engine field. |
 | Services `/services` | `GET /api/v1/services` | LIVE (404 → "Services API not available" state). | **RAY-ONLY** — Serve = KubeRay RayServices; copy states Dask clusters have no services and never appear. |
@@ -66,8 +67,12 @@ Last updated: 2026-08-24 (branch `feat/engine-ui` — engine-aware Ray + Dask).
 
 - **Cluster-detail → Config**: STUB. Needs the full effective spec on
   `ClusterView` (api-v1.md §3.4) and `PATCH /api/v1/clusters/{id}` (Milestone B).
-- **Overview job stat tiles + activity feed**: STUB. Awaiting the aggregating
-  `GET /api/v1/overview`.
+- **Overview job stat tiles + activity feed**: WIRED to `GET /api/v1/jobs`
+  (no longer STUB). Tiles/list are empty (`—` / empty state) until
+  gateway-submitted jobs are attributed backend-side (#89), then populate
+  with no UI change. A future aggregating `GET /api/v1/overview` could still
+  replace the per-tile derivation, but is no longer a prerequisite for live
+  job stats.
 - **Dask Jobs tab**: N/A-BY-ENGINE by design — Dask has no job-submission API.
 - **Services (all three routes)**: RAY-ONLY by design — Ray Serve = KubeRay
   RayServices; Dask has no service surface.

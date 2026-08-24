@@ -1,3 +1,4 @@
+import { clusterViewState } from './api'
 import type { ClusterView, Identity } from './api'
 
 /**
@@ -62,4 +63,38 @@ export function generationDrift(
   view: Pick<ClusterView, 'generation' | 'observedGeneration'>,
 ): boolean {
   return view.generation !== view.observedGeneration
+}
+
+/**
+ * A cluster is a "tombstone" once its rendered lifecycle state is
+ * `terminated` — the terminal state where the cluster no longer exists
+ * (cluster-state.ts). Resolution matches every badge in the UI
+ * (`clusterViewState`: observed_state, else desired, else pending), so a
+ * cluster the reconciler has torn down but whose spec still reads
+ * `terminated` counts either way.
+ */
+export function isTerminated(view: ClusterView): boolean {
+  return clusterViewState(view) === 'terminated'
+}
+
+export interface ClusterPartition {
+  /** Clusters shown by default (everything that is not a tombstone). */
+  active: ClusterView[]
+  /** Terminated tombstones, hidden until "Show terminated" is toggled on. */
+  terminated: ClusterView[]
+}
+
+/**
+ * Split clusters into the ones shown by default and the terminated
+ * tombstones hidden behind the "Show terminated" toggle. Order within each
+ * bucket is preserved from the source list.
+ */
+export function partitionTerminated(clusters: ClusterView[]): ClusterPartition {
+  const active: ClusterView[] = []
+  const terminated: ClusterView[] = []
+  for (const view of clusters) {
+    if (isTerminated(view)) terminated.push(view)
+    else active.push(view)
+  }
+  return { active, terminated }
 }

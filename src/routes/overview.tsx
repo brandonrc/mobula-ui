@@ -16,6 +16,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { api, clusterViewState } from '@/lib/api'
+import {
+  countActiveJobs,
+  countFailedJobsSince,
+  recentJobs,
+} from '@/lib/jobs'
 import { sumResourceHours, usageWindow } from '@/lib/usage'
 
 function StatCard({ title, value }: { title: string; value: string }) {
@@ -73,6 +78,22 @@ export function OverviewPage() {
       ? '—'
       : `${(gpuHours ?? 0).toFixed(1)} GPU-h · ${(cpuHours ?? 0).toFixed(1)} CPU-h`
 
+  // Job stat tiles + recent activity from GET /api/v1/jobs (spec §5.5).
+  // Empty until gateway-submitted jobs are attributed backend-side (#89);
+  // the tiles degrade to "—" and the feed to its empty state until then.
+  const jobsQuery = useQuery({
+    queryKey: ['jobs'],
+    queryFn: api.jobs,
+    retry: false,
+    refetchInterval: 30_000,
+  })
+  const jobs = jobsQuery.data
+  const activeJobs = jobs ? countActiveJobs(jobs) : undefined
+  const failedJobs24h = jobs
+    ? countFailedJobsSince(jobs, usageWindow(86_400).from)
+    : undefined
+  const recent = jobs ? recentJobs(jobs, 6) : []
+
   return (
     <>
       <PageHeader
@@ -86,9 +107,14 @@ export function OverviewPage() {
           value={clusters ? `${running ?? 0} / ${clusters.length}` : '—'}
         />
         <StatCard title="Resource-hours (24h)" value={resourceHoursValue} />
-        {/* Job stats arrive with GET /api/v1/overview (spec §8). */}
-        <StatCard title="Active jobs" value="—" />
-        <StatCard title="Failed jobs (24h)" value="—" />
+        <StatCard
+          title="Active jobs"
+          value={activeJobs === undefined ? '—' : String(activeJobs)}
+        />
+        <StatCard
+          title="Failed jobs (24h)"
+          value={failedJobs24h === undefined ? '—' : String(failedJobs24h)}
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -157,10 +183,43 @@ export function OverviewPage() {
             <CardTitle>Recent activity</CardTitle>
           </CardHeader>
           <CardContent>
-            <EmptyState
-              title="No activity feed yet"
-              description="Audit events (subject, cluster, method, path, status, latency) will stream here once GET /api/v1/overview lands — history survives clusters because it lives in Mobula, not on the head node."
-            />
+            {jobsQuery.isPending ? (
+              <p className="text-sm text-muted-foreground">Loading…</p>
+            ) : jobsQuery.isError ? (
+              <ApiErrorState
+                error={jobsQuery.error}
+                onRetry={() => jobsQuery.refetch()}
+              />
+            ) : recent.length > 0 ? (
+              <ul className="divide-y text-sm">
+                {recent.map((job) => (
+                  <li
+                    key={job.id}
+                    className="flex items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
+                  >
+                    <div className="min-w-0">
+                      <Link
+                        to="/jobs"
+                        className="font-mono text-xs hover:underline"
+                      >
+                        {job.id}
+                      </Link>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {job.submitter} · {job.cluster}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {job.status}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptyState
+                title="No activity yet"
+                description="Jobs submitted through Mobula's gateway appear here — and stay here after their cluster is gone, because history lives in Mobula, not on the head node."
+              />
+            )}
           </CardContent>
         </Card>
       </div>
