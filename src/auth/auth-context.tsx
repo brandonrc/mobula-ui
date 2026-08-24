@@ -16,6 +16,7 @@ import {
   setSessionMeta,
 } from '@/lib/auth-token'
 import { refreshTokens } from '@/lib/pkce'
+import { clearSilentSsoAttempt } from '@/lib/silent-sso'
 
 /**
  * Auth session (spec §5.10). Sign-in paths: SSO redirect (Authorization
@@ -160,6 +161,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setCurrentToken(trimmed)
         setRefreshToken(options?.refreshToken ?? null)
         setToken(trimmed)
+        // Successful sign-in re-arms silent SSO for a future signed-out tab.
+        clearSilentSsoAttempt()
         return identity
       },
       signInLocal: (newToken: string, identity: Identity, expiresAt?: number) => {
@@ -169,6 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setCurrentToken(newToken)
         setRefreshToken(null)
         setToken(newToken)
+        clearSilentSsoAttempt()
         return identity
       },
       signOut: () => {
@@ -176,6 +180,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setRefreshToken(null)
         setSessionMeta(null)
         setToken(null)
+        // Explicit sign-out re-arms silent SSO: for SSO sessions the
+        // issuer logout kills the IdP session too, so the next visit's
+        // silent attempt lands on /login (via login_required) as expected.
+        clearSilentSsoAttempt()
       },
     }),
     [session, devAuth],

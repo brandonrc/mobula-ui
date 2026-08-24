@@ -77,6 +77,12 @@ export function buildAuthorizeUrl(options: {
   redirectUri: string
   state: string
   codeChallenge: string
+  /**
+   * OIDC `prompt` parameter. `'none'` makes the attempt silent: an existing
+   * IdP session answers with a code immediately, no session answers with
+   * `error=login_required` — never a login form (src/lib/silent-sso.ts).
+   */
+  prompt?: 'none'
 }): string {
   const url = new URL(oidcEndpoint(options.issuer, 'auth'))
   url.searchParams.set('response_type', 'code')
@@ -86,6 +92,7 @@ export function buildAuthorizeUrl(options: {
   url.searchParams.set('state', options.state)
   url.searchParams.set('code_challenge', options.codeChallenge)
   url.searchParams.set('code_challenge_method', 'S256')
+  if (options.prompt != null) url.searchParams.set('prompt', options.prompt)
   return url.toString()
 }
 
@@ -169,10 +176,15 @@ export function consumePkceState(
 // Browser-side flow drivers (not unit-tested — thin glue over the above).
 // ---------------------------------------------------------------------------
 
-/** Kick off the SSO redirect; the browser leaves the app here. */
+/**
+ * Kick off the SSO redirect; the browser leaves the app here. Pass
+ * `prompt: 'none'` for the silent auto-attempt (src/lib/silent-sso.ts);
+ * explicit "Sign in with SSO" clicks omit it and keep today's behaviour.
+ */
 export async function startSsoSignIn(
   returnTo = '/',
   issuer: string = issuerBase(),
+  options?: { prompt?: 'none' },
 ): Promise<void> {
   const verifier = generateVerifier()
   const state = generateState()
@@ -188,6 +200,7 @@ export async function startSsoSignIn(
       redirectUri: ssoRedirectUri(),
       state,
       codeChallenge: challenge,
+      prompt: options?.prompt,
     }),
   )
 }

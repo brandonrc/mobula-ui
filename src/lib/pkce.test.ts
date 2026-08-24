@@ -92,6 +92,36 @@ describe('buildAuthorizeUrl', () => {
     expect(url.searchParams.get('code_challenge_method')).toBe('S256')
   })
 
+  it('omits the prompt parameter by default (explicit sign-in clicks)', () => {
+    const url = new URL(
+      buildAuthorizeUrl({
+        issuer: ISSUER,
+        clientId: 'mobula',
+        redirectUri: 'http://localhost:5173/auth/callback',
+        state: 'st',
+        codeChallenge: 'ch',
+      }),
+    )
+    expect(url.searchParams.has('prompt')).toBe(false)
+  })
+
+  it('appends prompt=none for the silent auto-SSO attempt', () => {
+    const url = new URL(
+      buildAuthorizeUrl({
+        issuer: ISSUER,
+        clientId: 'mobula',
+        redirectUri: 'http://localhost:5173/auth/callback',
+        state: 'st',
+        codeChallenge: 'ch',
+        prompt: 'none',
+      }),
+    )
+    expect(url.searchParams.get('prompt')).toBe('none')
+    // The silent attempt is otherwise the standard authcode+PKCE request.
+    expect(url.searchParams.get('response_type')).toBe('code')
+    expect(url.searchParams.get('code_challenge_method')).toBe('S256')
+  })
+
   it('tolerates a trailing slash on the issuer', () => {
     const url = buildAuthorizeUrl({
       issuer: `${ISSUER}/`,
