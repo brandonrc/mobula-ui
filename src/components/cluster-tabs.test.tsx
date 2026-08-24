@@ -236,6 +236,24 @@ describe('MetricsSection', () => {
     const html = renderToStaticMarkup(<MetricsSection data={{ cluster_id: 'c' }} />)
     expect(html).toContain('No resource metrics reported.')
   })
+
+  it('renders capacity-only tiles when used is absent (non-autoscaling)', () => {
+    const html = renderToStaticMarkup(
+      <MetricsSection
+        data={{
+          cluster_id: 'c',
+          cpu: { total: 4 },
+          memory: { total: 16 * 1024 ** 3 },
+          active_nodes: 2,
+        }}
+      />,
+    )
+    expect(html).toContain('CPU')
+    expect(html).toContain('capacity')
+    // no meter/percentage when used is unknown
+    expect(html).not.toContain('% used')
+    expect(html).toContain('Active nodes: 2')
+  })
 })
 
 describe('LogsSection', () => {

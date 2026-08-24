@@ -262,9 +262,14 @@ export interface ClusterEventsView {
   events: ClusterEventView[]
 }
 
-/** A resource's used-vs-total pair (cores / device count / bytes). */
+/**
+ * A resource's capacity (`total`) and its used amount when known (cores /
+ * device count / bytes). `used` is absent when the cluster reports no live
+ * utilization (e.g. a non-autoscaling cluster) — the tile then shows capacity
+ * only, no meter.
+ */
 export interface ResourceStat {
-  used: number
+  used?: number | null
   total: number
 }
 
