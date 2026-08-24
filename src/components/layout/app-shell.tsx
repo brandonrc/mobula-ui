@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router'
 
+import { useSilentSso } from '@/auth/use-silent-sso'
 import { HealthIndicator } from '@/components/layout/health-indicator'
 import { IdentityChip } from '@/components/layout/identity-chip'
 import { Sidebar } from '@/components/layout/sidebar'
@@ -7,6 +8,8 @@ import { ThemeToggle } from '@/components/layout/theme-toggle'
 
 /** App shell per spec §4: left sidebar nav + top bar. */
 export function AppShell() {
+  // Signed out but the IdP may still hold a session? Try silently, once.
+  useSilentSso()
   return (
     <div className="flex h-screen">
       <Sidebar />

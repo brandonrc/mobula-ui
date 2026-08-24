@@ -5,7 +5,8 @@ import { Link, useNavigate, useSearchParams } from 'react-router'
 import { useAuth } from '@/auth/auth-context'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { consumePkceState, exchangeCodeForTokens } from '@/lib/pkce'
+import { clearPkceState, consumePkceState, exchangeCodeForTokens } from '@/lib/pkce'
+import { isSilentSsoDenial, markSilentSsoAttempted } from '@/lib/silent-sso'
 
 /**
  * OAuth redirect target (`/auth/callback`, registered on the issuer's
@@ -28,6 +29,17 @@ export function AuthCallbackPage() {
 
     const errorParam = searchParams.get('error')
     if (errorParam != null) {
+      // `login_required`/`interaction_required` etc. are the issuer's
+      // answer to a silent `prompt=none` attempt with no live IdP session
+      // — a benign outcome, not a failure. Keep the guard set so the app
+      // doesn't retry in a loop, drop the unused PKCE stash, and land on
+      // the login page without a failure card.
+      if (isSilentSsoDenial(errorParam)) {
+        clearPkceState()
+        markSilentSsoAttempted()
+        void navigate('/login', { replace: true })
+        return
+      }
       setError(
         searchParams.get('error_description') ??
           `The issuer returned an error: ${errorParam}`,
