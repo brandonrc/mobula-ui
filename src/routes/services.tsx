@@ -63,7 +63,7 @@ export function ServicesPage() {
     <>
       <PageHeader
         title="Services"
-        description="Ray Serve applications Mobula deploys as KubeRay RayServices."
+        description="Ray Serve applications Mobula deploys as KubeRay RayServices. Serve is Ray-only — Dask clusters have no services and never appear here."
         actions={
           canManage ? (
             <Button asChild size="sm">

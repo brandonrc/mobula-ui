@@ -12,6 +12,7 @@ import {
   ClusterNodesTab,
 } from '@/components/cluster-tabs'
 import { ClusterStateBadge } from '@/components/cluster-state-badge'
+import { EngineBadge } from '@/components/engine-badge'
 import { ApiErrorState, EmptyState } from '@/components/empty-state'
 import { PageHeader } from '@/components/page-header'
 import { Badge } from '@/components/ui/badge'
@@ -126,10 +127,15 @@ function OverviewTab({ cluster }: { cluster: ClusterView }) {
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <Field label="Project" value={cluster.project} />
-          <Field
-            label="Ray version"
-            value={<span className="font-mono text-xs">{cluster.rayVersion}</span>}
-          />
+          <Field label="Engine" value={<EngineBadge engine={cluster.engine} />} />
+          {cluster.engine === 'ray' ? (
+            <Field
+              label="Ray version"
+              value={
+                <span className="font-mono text-xs">{cluster.rayVersion}</span>
+              }
+            />
+          ) : null}
           <Field
             label="Est. min cost"
             value={formatHourlyCost(cluster.estMinHourly)}
@@ -207,8 +213,11 @@ export function ClusterDetailPage() {
           cluster ? (
             <span className="flex flex-wrap items-center gap-2">
               <ClusterStateBadge state={clusterViewState(cluster)} />
+              <EngineBadge engine={cluster.engine} />
               <Badge variant="outline">project {cluster.project}</Badge>
-              <Badge variant="outline">ray {cluster.rayVersion}</Badge>
+              {cluster.engine === 'ray' ? (
+                <Badge variant="outline">ray {cluster.rayVersion}</Badge>
+              ) : null}
               <Badge variant="outline" title="spec generation → observed generation">
                 gen {cluster.generation} → {cluster.observedGeneration}
               </Badge>
@@ -276,9 +285,9 @@ export function ClusterDetailPage() {
       ) : cluster && activeTab === 'overview' ? (
         <OverviewTab cluster={cluster} />
       ) : cluster && activeTab === 'nodes' ? (
-        <ClusterNodesTab clusterId={clusterId} />
+        <ClusterNodesTab clusterId={clusterId} engine={cluster.engine} />
       ) : cluster && activeTab === 'jobs' ? (
-        <ClusterJobsTab clusterId={clusterId} />
+        <ClusterJobsTab clusterId={clusterId} engine={cluster.engine} />
       ) : cluster && activeTab === 'events' ? (
         <ClusterEventsTab clusterId={clusterId} />
       ) : cluster && activeTab === 'metrics' ? (

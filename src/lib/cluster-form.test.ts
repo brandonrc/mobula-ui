@@ -140,6 +140,7 @@ describe('buildCreateCluster', () => {
       spec: {
         name: 'team-training',
         project: 'proj-a',
+        engine: 'ray',
         rayVersion: '2.57.0',
         image: 'rayproject/ray:2.57.0',
         headCpu: '2',
@@ -171,6 +172,30 @@ describe('buildCreateCluster', () => {
 
   it('maps an empty TTL to null (reaping disabled)', () => {
     expect(buildCreateCluster(validForm()).spec.ttlSeconds).toBeNull()
+  })
+
+  it('carries the selected engine into the POST spec', () => {
+    const ray = validForm()
+    expect(buildCreateCluster(ray).spec.engine).toBe('ray')
+    const dask = { ...validForm(), engine: 'dask' as const, image: 'ghcr.io/dask/dask:latest' }
+    expect(buildCreateCluster(dask).spec.engine).toBe('dask')
+  })
+})
+
+describe('validateClusterForm (engine-aware)', () => {
+  it('does not require a Ray version for a Dask cluster', () => {
+    const dask = {
+      ...validForm(),
+      engine: 'dask' as const,
+      rayVersion: '',
+      image: 'ghcr.io/dask/dask:latest',
+    }
+    expect(validateClusterForm(dask)).toEqual([])
+  })
+
+  it('still requires a Ray version for a Ray cluster', () => {
+    const ray = { ...validForm(), rayVersion: '' }
+    expect(validateClusterForm(ray)).toContain('Ray version is required.')
   })
 })
 

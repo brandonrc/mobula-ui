@@ -7,6 +7,7 @@ function view(overrides: Partial<ClusterView> = {}): ClusterView {
   return {
     id: 'c1',
     project: 'demo',
+    engine: 'ray',
     rayVersion: '2.57.0',
     generation: 1,
     observedGeneration: 1,

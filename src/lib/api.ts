@@ -17,7 +17,9 @@
 
 import {
   ClustersApi,
+  ClusterViewFromJSON,
   Configuration,
+  CreateClusterToJSON,
   JobsApi,
   PoolsApi,
   ResponseError,
@@ -27,9 +29,8 @@ import {
 } from '@brandonrc/mobula-client'
 import type {
   AllocationSpec,
-  ClusterSpec,
-  ClusterView,
-  CreateCluster,
+  ClusterSpec as GeneratedClusterSpec,
+  ClusterView as GeneratedClusterView,
   CreatePool,
   DeployService,
   FlavorSpec,
@@ -51,13 +52,11 @@ import type {
 import type { AuditListResponse } from './audit'
 import { getCurrentToken, notifySessionExpired } from './auth-token'
 import { isClusterState, type ClusterState } from './cluster-state'
+import { normalizeEngine, type Engine } from './engine'
 
 // Canonical API shapes, re-exported from the generated client.
 export type {
   AllocationSpec,
-  ClusterSpec,
-  ClusterView,
-  CreateCluster,
   CreatePool,
   DeployService,
   FlavorSpec,
@@ -74,6 +73,24 @@ export type {
   UsageReport,
   VersionInfo,
   WorkerGroup,
+}
+
+export type { Engine } from './engine'
+
+/**
+ * `engine` is UI-ahead: the running control plane (multi-engine build) returns
+ * it per cluster and accepts it on create, but it is not in the published
+ * `@brandonrc/mobula-client` yet — the generated `ClusterViewFromJSON` /
+ * `ClusterSpecToJSON` silently drop it. So we extend the generated shapes here
+ * and thread `engine` through the hand-mapped cluster reads/writes below.
+ * Delete these extensions once the client is republished with `engine`.
+ */
+export type ClusterSpec = GeneratedClusterSpec & { engine?: Engine }
+export type ClusterView = GeneratedClusterView & { engine: Engine }
+export interface CreateCluster {
+  /** Stable cluster id (also the gateway routing key / cluster CR name). */
+  id: string
+  spec: ClusterSpec
 }
 
 // Mobula's four roles (mobula-auth). Kept in sync with the backend enum;
@@ -325,6 +342,19 @@ export function clusterViewState(view: ClusterView): ClusterState {
   return 'pending'
 }
 
+/**
+ * Map a raw `/clusters` JSON object to a `ClusterView`, reusing the generated
+ * `ClusterViewFromJSON` for the client-owned fields and merging in the
+ * UI-ahead `engine` (which the generated mapper drops). Every cluster read
+ * routes through here so `engine` is always present and normalized.
+ */
+function toClusterView(json: unknown): ClusterView {
+  return {
+    ...ClusterViewFromJSON(json),
+    engine: normalizeEngine((json as { engine?: unknown })?.engine),
+  }
+}
+
 export interface MobulaApiErrorInit {
   kind: 'http' | 'network'
   status: number
@@ -564,10 +594,32 @@ const usageApi = new UsageApi(config)
 export const api = {
   healthz: () => call(() => systemApi.healthz()),
   version: () => call(() => systemApi.version()),
-  clusters: () => call(() => clustersApi.listClusters()),
-  cluster: (id: string) => call(() => clustersApi.getCluster({ id })),
-  createCluster: (createCluster: CreateCluster) =>
-    call(() => clustersApi.createCluster({ createCluster })),
+  // Cluster reads/writes are hand-mapped (not via the generated `ClustersApi`
+  // calls) so the UI-ahead `engine` field survives — the generated
+  // serializers drop it. Same `request()` failure semantics as before, and
+  // `toClusterView` reuses the generated field mapping for everything else.
+  clusters: () =>
+    request<unknown[]>('/api/v1/clusters').then((rows) =>
+      rows.map(toClusterView),
+    ),
+  cluster: (id: string) =>
+    request<unknown>(`/api/v1/clusters/${encodeURIComponent(id)}`).then(
+      toClusterView,
+    ),
+  createCluster: (createCluster: CreateCluster) => {
+    // Serialize the client-owned fields with the generated mapper, then merge
+    // `engine` into the spec (the mapper drops it). Default to Ray.
+    const body = CreateClusterToJSON(createCluster) as unknown as {
+      spec: Record<string, unknown>
+      [k: string]: unknown
+    }
+    body.spec.engine = createCluster.spec.engine ?? 'ray'
+    return request<unknown>('/api/v1/clusters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(toClusterView)
+  },
   deleteCluster: (id: string) => call(() => clustersApi.deleteCluster({ id })),
   /**
    * UI-ahead: per-cluster nodes/jobs (mobula PR #91) are not in the published

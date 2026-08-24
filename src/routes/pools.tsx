@@ -60,7 +60,7 @@ export function PoolsPage() {
     <>
       <PageHeader
         title="Pools"
-        description="Shared capacity pools — flavors, cohorts, and per-project allocations backed by Kueue (ADR-0010)."
+        description="Shared capacity pools — flavors, cohorts, and per-project allocations backed by Kueue (ADR-0010). Pools are engine-neutral: any project's clusters draw from them. Admission gang-suspends Ray workloads today; Dask enforcement is project-quota only."
         actions={
           canWrite ? (
             <Button asChild size="sm">
