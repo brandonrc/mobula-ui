@@ -3,16 +3,26 @@ import { describe, expect, it } from 'vitest'
 
 import {
   ClusterTabError,
+  EventsSection,
   JobsSection,
+  LogsSection,
+  MetricsSection,
   NodesSection,
   formatCpuCores,
   formatGpu,
   formatJobDuration,
   formatJobStart,
   formatMemoryGiB,
+  formatRelativeAge,
 } from '@/components/cluster-tabs'
 import { MobulaApiError } from '@/lib/api'
-import type { ClusterJobView, ClusterNodesView } from '@/lib/api'
+import type {
+  ClusterEventsView,
+  ClusterJobView,
+  ClusterLogsView,
+  ClusterMetricsView,
+  ClusterNodesView,
+} from '@/lib/api'
 
 describe('formatters', () => {
   it('formats memory bytes as GiB', () => {
@@ -146,5 +156,123 @@ describe('ClusterTabError', () => {
     )
     expect(html).toContain('Cluster unreachable')
     expect(html).toContain('503')
+  })
+})
+
+describe('formatRelativeAge', () => {
+  it('formats a recent timestamp as a compact age', () => {
+    const now = Date.now()
+    expect(formatRelativeAge(new Date(now - 30_000).toISOString())).toMatch(/s$/)
+    expect(formatRelativeAge(new Date(now - 5 * 60_000).toISOString())).toBe('5m')
+    expect(formatRelativeAge(new Date(now - 3 * 3600_000).toISOString())).toBe('3h')
+    expect(formatRelativeAge(null)).toBe('—')
+    expect(formatRelativeAge('not-a-date')).toBe('—')
+  })
+})
+
+describe('EventsSection', () => {
+  const events: ClusterEventsView = {
+    cluster_id: 'team-b-scoring',
+    events: [
+      {
+        type: 'Warning',
+        reason: 'FailedScheduling',
+        message: '0/3 nodes available: 3 Insufficient nvidia.com/gpu',
+        count: 4,
+        first_seen: new Date(Date.now() - 600_000).toISOString(),
+        last_seen: new Date(Date.now() - 300_000).toISOString(),
+        object: 'Pod/team-b-scoring-head-abc',
+      },
+    ],
+  }
+
+  it('renders a row per event with type, reason, message and count', () => {
+    const html = renderToStaticMarkup(<EventsSection data={events} />)
+    expect(html).toContain('Warning')
+    expect(html).toContain('FailedScheduling')
+    expect(html).toContain('Insufficient nvidia.com/gpu')
+    expect(html).toContain('Pod/team-b-scoring-head-abc')
+    expect(html).toContain('>4<')
+  })
+
+  it('renders the empty state when there are no events', () => {
+    const html = renderToStaticMarkup(
+      <EventsSection data={{ cluster_id: 'c', events: [] }} />,
+    )
+    expect(html).toContain('No events for this cluster.')
+  })
+})
+
+describe('MetricsSection', () => {
+  it('renders a tile per reported resource and node counts', () => {
+    const metrics: ClusterMetricsView = {
+      cluster_id: 'c',
+      cpu: { used: 6, total: 8 },
+      gpu: { used: 1, total: 2 },
+      memory: { used: 10 * 1024 ** 3, total: 32 * 1024 ** 3 },
+      active_nodes: 3,
+      pending_nodes: 0,
+    }
+    const html = renderToStaticMarkup(<MetricsSection data={metrics} />)
+    expect(html).toContain('CPU')
+    expect(html).toContain('GPU')
+    expect(html).toContain('Memory')
+    // memory formatted to GiB
+    expect(html).toContain('32.0')
+    // node counts surfaced
+    expect(html).toContain('Active nodes: 3')
+    expect(html).toContain('Pending: 0')
+  })
+
+  it('omits tiles for resources the cluster does not report', () => {
+    const html = renderToStaticMarkup(
+      <MetricsSection data={{ cluster_id: 'c', cpu: { used: 1, total: 4 } }} />,
+    )
+    expect(html).toContain('CPU')
+    expect(html).not.toContain('GPU')
+  })
+
+  it('renders the empty state when nothing is reported', () => {
+    const html = renderToStaticMarkup(<MetricsSection data={{ cluster_id: 'c' }} />)
+    expect(html).toContain('No resource metrics reported.')
+  })
+})
+
+describe('LogsSection', () => {
+  const logs: ClusterLogsView = {
+    cluster_id: 'c',
+    pods: ['c-head-abc', 'c-worker-1'],
+    pod: 'c-head-abc',
+    tail: 200,
+    lines: ['line one', 'line two'],
+    truncated: true,
+  }
+
+  it('renders the tail, a pod selector, and the streaming-coming-soon note', () => {
+    const html = renderToStaticMarkup(
+      <LogsSection
+        data={logs}
+        selectedPod="c-head-abc"
+        onSelectPod={() => {}}
+        onRefresh={() => {}}
+      />,
+    )
+    expect(html).toContain('line one')
+    expect(html).toContain('line two')
+    expect(html).toContain('c-worker-1') // selector option
+    expect(html).toContain('streaming coming soon')
+    expect(html).toContain('showing the last 200 lines')
+  })
+
+  it('renders an empty state when the cluster has no pods', () => {
+    const html = renderToStaticMarkup(
+      <LogsSection
+        data={{ ...logs, pods: [], pod: '', lines: [] }}
+        selectedPod=""
+        onSelectPod={() => {}}
+        onRefresh={() => {}}
+      />,
+    )
+    expect(html).toContain('No pods to tail yet.')
   })
 })

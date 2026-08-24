@@ -4,7 +4,13 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
 import { useCanManageClusters } from '@/auth/permissions'
-import { ClusterJobsTab, ClusterNodesTab } from '@/components/cluster-tabs'
+import {
+  ClusterEventsTab,
+  ClusterJobsTab,
+  ClusterLogsTab,
+  ClusterMetricsTab,
+  ClusterNodesTab,
+} from '@/components/cluster-tabs'
 import { ClusterStateBadge } from '@/components/cluster-state-badge'
 import { ApiErrorState, EmptyState } from '@/components/empty-state'
 import { PageHeader } from '@/components/page-header'
@@ -30,18 +36,18 @@ import { cn } from '@/lib/utils'
 
 /**
  * Tab layout from spec §5.4. Overview (`GET /api/v1/clusters/{id}`), Nodes
- * (`GET /api/v1/clusters/{id}/nodes`) and Jobs (`GET
- * /api/v1/clusters/{id}/jobs`) are backed today; the rest are specced in
- * api-v1.md but unbacked, so they render an explicit pending-backend empty
- * state rather than a mock.
+ * (`.../nodes`), Jobs (`.../jobs`), Events (`.../events`), Metrics
+ * (`.../metrics`) and Logs (`.../logs`) are all backed today; only Config
+ * remains specced-but-unbacked, so it renders an explicit pending-backend
+ * empty state rather than a mock.
  */
 const TABS = [
   { id: 'overview', label: 'Overview', note: '' },
   { id: 'nodes', label: 'Nodes', note: '' },
   { id: 'jobs', label: 'Jobs', note: '' },
-  { id: 'logs', label: 'Logs', note: 'Streaming log viewer. Pending backend — needs the control-plane WS endpoint (api-v1.md §5.6, Milestone C).' },
-  { id: 'metrics', label: 'Metrics', note: 'Native metric views and Grafana deep-links. Pending backend — no per-cluster metrics endpoint exists yet.' },
-  { id: 'events', label: 'Events', note: 'Per-cluster audit/transition stream. Pending backend — needs GET /api/v1/clusters/{id}/events (api-v1.md §5.8).' },
+  { id: 'logs', label: 'Logs', note: '' },
+  { id: 'metrics', label: 'Metrics', note: '' },
+  { id: 'events', label: 'Events', note: '' },
   { id: 'config', label: 'Config', note: 'Effective spec view + edit-via-wizard. Pending backend — ClusterView does not carry the full spec yet (api-v1.md §3.4 adds it) and PATCH /api/v1/clusters/{id} is Milestone B.' },
 ] as const
 
@@ -273,6 +279,12 @@ export function ClusterDetailPage() {
         <ClusterNodesTab clusterId={clusterId} />
       ) : cluster && activeTab === 'jobs' ? (
         <ClusterJobsTab clusterId={clusterId} />
+      ) : cluster && activeTab === 'events' ? (
+        <ClusterEventsTab clusterId={clusterId} />
+      ) : cluster && activeTab === 'metrics' ? (
+        <ClusterMetricsTab clusterId={clusterId} />
+      ) : cluster && activeTab === 'logs' ? (
+        <ClusterLogsTab clusterId={clusterId} />
       ) : (
         <EmptyState
           title={`${tab.label} — pending backend`}
