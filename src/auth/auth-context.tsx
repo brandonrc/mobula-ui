@@ -1,6 +1,8 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
+import { api } from '@/lib/api'
 import type { Identity } from '@/lib/api'
 import type { SessionSource } from '@/lib/auth-token'
 import {
@@ -14,6 +16,7 @@ import {
   setCurrentToken,
   setRefreshToken,
   setSessionMeta,
+  withReportedRoles,
 } from '@/lib/auth-token'
 import { refreshTokens } from '@/lib/pkce'
 import { clearSilentSsoAttempt } from '@/lib/silent-sso'
@@ -87,6 +90,7 @@ const AuthContext = createContext<AuthContextValue>({
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const devAuth = isDevAuthEnabled()
+  const queryClient = useQueryClient()
   const [token, setToken] = useState<string | null>(() => getCurrentToken())
 
   // Silent refresh (SSO sessions only): no usable access token (absent or
@@ -130,10 +134,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setRefreshToken(null)
       setSessionMeta(null)
       setToken(null)
+      queryClient.removeQueries({ queryKey: ['identity'] })
     }
     window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired)
     return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired)
-  }, [])
+  }, [queryClient])
 
   const session = useMemo(
     () =>
@@ -145,9 +150,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [token, devAuth],
   )
 
+  // Roles are authorized by the backend, not by parsing the token's groups
+  // client-side (the group→role map is per-deployment; see auth-token.ts).
+  // `GET /api/v1/identity` echoes the roles the server computed for this
+  // caller; overlay them onto the session identity so every nav gate and
+  // route guard reflects the backend's real authorization. Shares the
+  // ['identity'] query key with the Access page (deduped, one request).
+  // Disabled when signed out; until it resolves the provisional token roles
+  // stand (fail-closed for unknown groups).
+  const identityQuery = useQuery({
+    queryKey: ['identity'],
+    queryFn: api.identity,
+    enabled: session.identity != null,
+    retry: false,
+    staleTime: 60_000,
+  })
+
+  const mergedIdentity = useMemo(
+    () =>
+      session.identity == null
+        ? null
+        : withReportedRoles(session.identity, identityQuery.data),
+    [session.identity, identityQuery.data],
+  )
+
   const value = useMemo<AuthContextValue>(
     () => ({
-      identity: session.identity,
+      identity: mergedIdentity,
       devAuth,
       sessionSource: session.source,
       signIn: (newToken: string, options) => {
@@ -161,6 +190,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setCurrentToken(trimmed)
         setRefreshToken(options?.refreshToken ?? null)
         setToken(trimmed)
+        // Drop any cached role fetch from a prior session so the new caller's
+        // roles are fetched fresh, not inherited.
+        queryClient.removeQueries({ queryKey: ['identity'] })
         // Successful sign-in re-arms silent SSO for a future signed-out tab.
         clearSilentSsoAttempt()
         return identity
@@ -172,6 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setCurrentToken(newToken)
         setRefreshToken(null)
         setToken(newToken)
+        queryClient.removeQueries({ queryKey: ['identity'] })
         clearSilentSsoAttempt()
         return identity
       },
@@ -180,13 +213,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setRefreshToken(null)
         setSessionMeta(null)
         setToken(null)
+        // Forget the signed-out caller's roles so they can't leak to the next.
+        queryClient.removeQueries({ queryKey: ['identity'] })
         // Explicit sign-out re-arms silent SSO: for SSO sessions the
         // issuer logout kills the IdP session too, so the next visit's
         // silent attempt lands on /login (via login_required) as expected.
         clearSilentSsoAttempt()
       },
     }),
-    [session, devAuth],
+    [mergedIdentity, session.source, devAuth, queryClient],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
