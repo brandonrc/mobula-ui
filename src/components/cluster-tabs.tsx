@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { CloudOff, RefreshCw } from 'lucide-react'
+import { Ban, CloudOff, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 
 import { ApiErrorState, EmptyState } from '@/components/empty-state'
@@ -24,6 +24,7 @@ import type {
   NodeView,
   ResourceStat,
 } from '@/lib/api'
+import { headRoleLabel, type Engine } from '@/lib/engine'
 import { cn } from '@/lib/utils'
 
 /** `memory_bytes` → GiB with one decimal; em dash when the field is absent. */
@@ -147,19 +148,27 @@ function NodesTable({ nodes }: { nodes: NodeView[] }) {
  * `GET /api/v1/clusters/{id}/nodes` — observability only (D2: scale is
  * group-level, there is no "add node" button).
  */
-export function NodesSection({ data }: { data: ClusterNodesView }) {
+export function NodesSection({
+  data,
+  engine = 'ray',
+}: {
+  data: ClusterNodesView
+  engine?: Engine
+}) {
+  const headLabel = headRoleLabel(engine)
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Head node</CardTitle>
+          <CardTitle>{headLabel}</CardTitle>
         </CardHeader>
         <CardContent>
           {data.head ? (
             <NodesTable nodes={[data.head]} />
           ) : (
             <p className="text-sm text-muted-foreground">
-              No head node is currently reported for this cluster.
+              No {headLabel.toLowerCase()} is currently reported for this
+              cluster.
             </p>
           )}
         </CardContent>
@@ -309,7 +318,13 @@ export function ClusterTabError({
 }
 
 /** Container: fetches the cluster's nodes and renders the Nodes tab body. */
-export function ClusterNodesTab({ clusterId }: { clusterId: string }) {
+export function ClusterNodesTab({
+  clusterId,
+  engine = 'ray',
+}: {
+  clusterId: string
+  engine?: Engine
+}) {
   const query = useQuery({
     queryKey: ['clusters', clusterId, 'nodes'],
     queryFn: () => api.clusterNodes(clusterId),
@@ -323,18 +338,42 @@ export function ClusterNodesTab({ clusterId }: { clusterId: string }) {
   if (query.isError) {
     return <ClusterTabError error={query.error} onRetry={() => query.refetch()} />
   }
-  return <NodesSection data={query.data} />
+  return <NodesSection data={query.data} engine={engine} />
+}
+
+/**
+ * Jobs are a Ray-only surface: Ray proxies its own /api/jobs/ per cluster,
+ * Dask has no job-submission API. On a Dask cluster this renders a clean
+ * not-applicable state (not "pending backend", not an error).
+ */
+export function DaskJobsNotApplicable() {
+  return (
+    <EmptyState
+      icon={Ban}
+      title="Not applicable — Dask has no job-submission API"
+      description="Dask clusters expose a scheduler and workers but no Ray-Jobs-equivalent submission API, so there are no per-cluster jobs to list here. Drive work through the Dask scheduler directly (e.g. client.submit / dask.compute)."
+    />
+  )
 }
 
 /** Container: fetches the cluster's live jobs and renders the Jobs tab body. */
-export function ClusterJobsTab({ clusterId }: { clusterId: string }) {
+export function ClusterJobsTab({
+  clusterId,
+  engine = 'ray',
+}: {
+  clusterId: string
+  engine?: Engine
+}) {
   const query = useQuery({
     queryKey: ['clusters', clusterId, 'jobs'],
     queryFn: () => api.clusterJobs(clusterId),
     retry: false,
     refetchInterval: 15_000,
+    // Dask has no jobs API — never hit the endpoint for a Dask cluster.
+    enabled: engine === 'ray',
   })
 
+  if (engine === 'dask') return <DaskJobsNotApplicable />
   if (query.isPending) {
     return <p className="text-sm text-muted-foreground">Loading…</p>
   }

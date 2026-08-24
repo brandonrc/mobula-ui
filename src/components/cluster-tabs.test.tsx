@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   ClusterTabError,
+  DaskJobsNotApplicable,
   EventsSection,
   JobsSection,
   LogsSection,
@@ -15,6 +16,7 @@ import {
   formatMemoryGiB,
   formatRelativeAge,
 } from '@/components/cluster-tabs'
+import { EngineBadge } from '@/components/engine-badge'
 import { MobulaApiError } from '@/lib/api'
 import type {
   ClusterEventsView,
@@ -105,6 +107,29 @@ describe('NodesSection', () => {
       <NodesSection data={{ ...nodesData, head: null }} />,
     )
     expect(html).toContain('No head node')
+  })
+
+  it('labels the head as the scheduler for a Dask cluster', () => {
+    const html = renderToStaticMarkup(
+      <NodesSection data={nodesData} engine="dask" />,
+    )
+    expect(html).toContain('Scheduler')
+    expect(html).not.toContain('Head node')
+  })
+})
+
+describe('DaskJobsNotApplicable', () => {
+  it('renders the not-applicable state (not pending, not error)', () => {
+    const html = renderToStaticMarkup(<DaskJobsNotApplicable />)
+    expect(html).toContain('Not applicable — Dask has no job-submission API')
+    expect(html).not.toContain('pending backend')
+  })
+})
+
+describe('EngineBadge', () => {
+  it('labels Ray and Dask distinctly', () => {
+    expect(renderToStaticMarkup(<EngineBadge engine="ray" />)).toContain('Ray')
+    expect(renderToStaticMarkup(<EngineBadge engine="dask" />)).toContain('Dask')
   })
 })
 

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router'
 
 import { ClusterStateBadge } from '@/components/cluster-state-badge'
+import { EngineBadge } from '@/components/engine-badge'
 import { ApiErrorState, EmptyState } from '@/components/empty-state'
 import { PageHeader } from '@/components/page-header'
 import { Button } from '@/components/ui/button'
@@ -109,6 +110,7 @@ export function OverviewPage() {
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Project</TableHead>
+                    <TableHead>Engine</TableHead>
                     <TableHead>State</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -125,6 +127,9 @@ export function OverviewPage() {
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {cluster.project}
+                      </TableCell>
+                      <TableCell>
+                        <EngineBadge engine={cluster.engine} />
                       </TableCell>
                       <TableCell>
                         <ClusterStateBadge state={clusterViewState(cluster)} />

@@ -5,6 +5,7 @@ import { Link } from 'react-router'
 
 import { useCanManageClusters } from '@/auth/permissions'
 import { ClusterStateBadge } from '@/components/cluster-state-badge'
+import { EngineBadge } from '@/components/engine-badge'
 import { DataTable } from '@/components/data-table'
 import { ApiErrorState, EmptyState } from '@/components/empty-state'
 import { PageHeader } from '@/components/page-header'
@@ -32,6 +33,11 @@ const columns: ColumnDef<ClusterView>[] = [
     cell: ({ row }) => row.original.project,
   },
   {
+    accessorKey: 'engine',
+    header: 'Engine',
+    cell: ({ row }) => <EngineBadge engine={row.original.engine} />,
+  },
+  {
     accessorKey: 'observedState',
     header: 'State',
     cell: ({ row }) => {
@@ -55,8 +61,15 @@ const columns: ColumnDef<ClusterView>[] = [
   },
   {
     accessorKey: 'rayVersion',
-    header: 'Ray',
-    cell: ({ row }) => row.original.rayVersion,
+    header: 'Ray version',
+    cell: ({ row }) =>
+      row.original.engine === 'ray' ? (
+        row.original.rayVersion
+      ) : (
+        <span className="text-muted-foreground" title="Ray version applies to Ray clusters only">
+          —
+        </span>
+      ),
   },
   {
     accessorKey: 'generation',

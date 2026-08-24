@@ -1,4 +1,5 @@
 import type { CreateCluster, WorkerGroup } from './api'
+import { defaultImageFor, type Engine } from './engine'
 
 // --- New-cluster form state (route /clusters/new) ---------------------------
 
@@ -15,9 +16,12 @@ export interface WorkerGroupRow {
 }
 
 export interface ClusterFormState {
-  /** Stable cluster id — also the gateway routing key / RayCluster name. */
+  /** Stable cluster id — also the gateway routing key / cluster CR name. */
   id: string
   project: string
+  /** Ray | Dask — decides which runtime fields apply and the POST `engine`. */
+  engine: Engine
+  /** Ray only; ignored (but harmlessly sent) for Dask. */
   rayVersion: string
   image: string
   headCpu: string
@@ -43,8 +47,9 @@ export function emptyClusterForm(): ClusterFormState {
   return {
     id: '',
     project: '',
+    engine: 'ray',
     rayVersion: '2.57.0',
-    image: 'rayproject/ray:2.57.0',
+    image: defaultImageFor('ray'),
     headCpu: '2',
     headMemory: '8Gi',
     ttlSeconds: '',
@@ -77,7 +82,10 @@ export function validateClusterForm(state: ClusterFormState): string[] {
   const errors: string[] = []
   if (state.id.trim() === '') errors.push('Cluster name is required.')
   if (state.project.trim() === '') errors.push('Project is required.')
-  if (state.rayVersion.trim() === '') errors.push('Ray version is required.')
+  // Ray version applies to Ray only; Dask is pinned by its image.
+  if (state.engine === 'ray' && state.rayVersion.trim() === '') {
+    errors.push('Ray version is required.')
+  }
   if (state.image.trim() === '') errors.push('Image is required.')
   if (!isValidQuantity(state.headCpu)) {
     errors.push(`Head CPU "${state.headCpu}" is not a valid quantity.`)
@@ -147,6 +155,7 @@ export function buildCreateCluster(state: ClusterFormState): CreateCluster {
     spec: {
       name: id,
       project: state.project.trim(),
+      engine: state.engine,
       rayVersion: state.rayVersion.trim(),
       image: state.image.trim(),
       headCpu: state.headCpu.trim(),

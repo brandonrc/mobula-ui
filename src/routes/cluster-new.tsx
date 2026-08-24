@@ -18,6 +18,8 @@ import {
   emptyWorkerGroup,
   validateClusterForm,
 } from '@/lib/cluster-form'
+import { defaultImageFor, headRoleLabel, type Engine } from '@/lib/engine'
+import { cn } from '@/lib/utils'
 
 /**
  * Create-cluster form (spec §5.3), backed by the implemented
@@ -52,6 +54,18 @@ export function ClusterNewPage() {
 
   const patch = (patch: Partial<ClusterFormState>) =>
     setState((prev) => ({ ...prev, ...patch }))
+
+  // Switching engine swaps the image default only if the user hasn't
+  // overridden it, so a Ray→Dask flip lands on a sensible Dask image.
+  const patchEngine = (engine: Engine) =>
+    setState((prev) => ({
+      ...prev,
+      engine,
+      image:
+        prev.image.trim() === defaultImageFor(prev.engine)
+          ? defaultImageFor(engine)
+          : prev.image,
+    }))
 
   const patchWorkerGroup = (
     index: number,
@@ -123,12 +137,43 @@ export function ClusterNewPage() {
                 placeholder="proj-a"
               />
             </label>
+            <div className="space-y-1">
+              <span className="text-sm text-muted-foreground">Engine</span>
+              <div
+                role="radiogroup"
+                aria-label="Cluster engine"
+                className="inline-flex rounded-md border p-0.5"
+              >
+                {(['ray', 'dask'] as const).map((engine) => (
+                  <button
+                    key={engine}
+                    type="button"
+                    role="radio"
+                    aria-checked={state.engine === engine}
+                    onClick={() => patchEngine(engine)}
+                    className={cn(
+                      'rounded px-3 py-1 text-sm capitalize transition-colors',
+                      state.engine === engine
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {engine === 'dask' ? 'Dask' : 'Ray'}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {state.engine === 'dask'
+                  ? 'Dask: a scheduler + workers (DaskCluster). No Ray Jobs API and no Serve services — the cluster is pinned by its image.'
+                  : 'Ray: a head + workers (RayCluster) with the Ray Jobs API and Ray Serve services available.'}
+              </p>
+            </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm">Head node</CardTitle>
+            <CardTitle className="text-sm">{headRoleLabel(state.engine)}</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
             <label className="block space-y-1">
@@ -278,22 +323,33 @@ export function ClusterNewPage() {
             <CardTitle className="text-sm">Runtime</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
-            <label className="block space-y-1">
-              <span className="text-sm text-muted-foreground">Ray version</span>
-              <Input
-                value={state.rayVersion}
-                onChange={(e) => patch({ rayVersion: e.target.value })}
-                placeholder="2.57.0"
-              />
-            </label>
+            {state.engine === 'ray' ? (
+              <label className="block space-y-1">
+                <span className="text-sm text-muted-foreground">
+                  Ray version
+                </span>
+                <Input
+                  value={state.rayVersion}
+                  onChange={(e) => patch({ rayVersion: e.target.value })}
+                  placeholder="2.57.0"
+                />
+              </label>
+            ) : null}
             <label className="block space-y-1">
               <span className="text-sm text-muted-foreground">Image</span>
               <Input
                 value={state.image}
                 onChange={(e) => patch({ image: e.target.value })}
-                placeholder="rayproject/ray:2.57.0"
+                placeholder={defaultImageFor(state.engine)}
               />
             </label>
+            {state.engine === 'dask' ? (
+              <p className="text-xs text-muted-foreground sm:col-span-2">
+                Dask has no separate version field — the Dask version is
+                whatever the chosen image ships. Pin it in the image tag (e.g.
+                <code className="mx-1">ghcr.io/dask/dask:2024.5.0</code>).
+              </p>
+            ) : null}
           </CardContent>
         </Card>
 
