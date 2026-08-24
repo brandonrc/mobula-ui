@@ -180,6 +180,62 @@ export interface RegistryCluster {
 }
 
 /**
+ * UI-ahead: per-cluster observability (`GET /api/v1/clusters/{id}/nodes` and
+ * `.../jobs`, mobula PR #91) landed backend-side but is not yet in the
+ * published `@brandonrc/mobula-client` — hand-fetched like identity/audit
+ * below; migrate to the generated `ClustersApi` once the client is
+ * republished. Both proxy the cluster's live Ray state, so a reachable
+ * control plane fronting an unreachable cluster answers 503 (`isUnavailable`);
+ * an out-of-scope / unknown cluster answers 404 (`isNotImplemented`). Fields
+ * are the raw snake_case wire shape — `request()` does no camelCase mapping.
+ */
+export interface NodeView {
+  pod_name: string
+  /** Worker-group name; absent on the head node. */
+  group?: string | null
+  is_head: boolean
+  /** Ray/Kubernetes pod phase (Running | Pending | …). */
+  phase: string
+  ready: boolean
+  node_ip?: string | null
+  host?: string | null
+  /** Allocatable CPU in cores. */
+  cpu?: number | null
+  /** Allocatable memory in bytes. */
+  memory_bytes?: number | null
+  /** Allocatable GPU count. */
+  gpu?: number | null
+}
+
+export interface NodeWorkerGroup {
+  name: string
+  desired: number
+  ready: number
+  nodes: NodeView[]
+}
+
+export interface ClusterNodesView {
+  cluster_id: string
+  head: NodeView | null
+  worker_groups: NodeWorkerGroup[]
+}
+
+/**
+ * A live Ray job on a single cluster (the browser-consumable, path-based
+ * proxy — the UI never builds raw Ray dashboard URLs). Every field is
+ * optional on the wire; `start_time`/`end_time` are epoch milliseconds.
+ */
+export interface ClusterJobView {
+  job_id?: string | null
+  submission_id?: string | null
+  status?: string | null
+  entrypoint?: string | null
+  start_time?: number | null
+  end_time?: number | null
+  message?: string | null
+}
+
+/**
  * UI-ahead: local-auth endpoints (api-v1.md §5.15, ADR-0011) are not yet in
  * the published `@brandonrc/mobula-client` — hand-written here like
  * `Identity`/`RegistryCluster`; delete and import from the client once
@@ -450,6 +506,20 @@ export const api = {
   createCluster: (createCluster: CreateCluster) =>
     call(() => clustersApi.createCluster({ createCluster })),
   deleteCluster: (id: string) => call(() => clustersApi.deleteCluster({ id })),
+  /**
+   * UI-ahead: per-cluster nodes/jobs (mobula PR #91) are not in the published
+   * client yet — hand-fetched like identity/audit below (see the `NodeView` /
+   * `ClusterJobView` notes above). 503 → cluster unreachable; 404 → the
+   * running backend predates the endpoint.
+   */
+  clusterNodes: (id: string) =>
+    request<ClusterNodesView>(
+      `/api/v1/clusters/${encodeURIComponent(id)}/nodes`,
+    ),
+  clusterJobs: (id: string) =>
+    request<ClusterJobView[]>(
+      `/api/v1/clusters/${encodeURIComponent(id)}/jobs`,
+    ),
   jobs: () => call(() => jobsApi.listJobs()),
   pools: () => call(() => poolsApi.listPools()),
   pool: (name: string) => call(() => poolsApi.getPool({ name })),
