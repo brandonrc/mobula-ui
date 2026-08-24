@@ -32,9 +32,19 @@ export function issuerBase(): string {
 }
 
 /**
- * Group path → role. Mirrors `deploy/keycloak/auth.toml` in the backend
- * repo (`[roles]` section) — keep in sync with that file, not the other
- * way around: the backend's mapping is authoritative, this is display-only.
+ * Group path → role, a BEST-EFFORT fallback only. This mirrors the local
+ * demo's `deploy/keycloak/auth.toml`, but the group→role mapping is
+ * per-deployment (a real cluster's realm uses its own group names, e.g.
+ * `mobula-admins`), so this static map cannot be correct everywhere and
+ * MUST NOT be the authority on the caller's role.
+ *
+ * The single source of truth is the backend: `GET /api/v1/identity` returns
+ * the roles the server computed from the deployment's own auth config, and
+ * `AuthProvider` overlays those onto the session identity (see
+ * `withReportedRoles`). This map only supplies a provisional role before
+ * that response arrives (and on older backends that lack the endpoint); it
+ * resolves to no roles for any deployment whose groups it doesn't list,
+ * which fails closed until the backend answers.
  */
 const GROUP_ROLE_MAP: Record<string, Role> = {
   '/platform-admins': 'admin',
@@ -125,6 +135,28 @@ export function identityFromToken(token: string, now = Date.now()): Identity | n
     groups,
     roles: rolesFromGroups(groups),
   }
+}
+
+/**
+ * Overlay the backend-reported roles onto a session identity. The backend
+ * (`GET /api/v1/identity`) is the single source of truth for roles: it maps
+ * the caller's groups to roles via the deployment's own auth config
+ * (`auth.toml`), which the client cannot know — `GROUP_ROLE_MAP` only ever
+ * matches one deployment's group names. Roles decide what admin UI the
+ * caller sees, so they must come from the server, not client-side parsing.
+ *
+ * Display fields (subject, email, groups) stay from the token decode: the
+ * decoded `preferred_username` is friendlier than the backend subject (the
+ * raw `sub`, a UUID for Keycloak). When no server identity is available yet
+ * (pending, or an older backend without the endpoint) the base identity's
+ * provisional roles are kept unchanged.
+ */
+export function withReportedRoles(
+  base: Identity,
+  reported: Identity | null | undefined,
+): Identity {
+  if (reported == null) return base
+  return { ...base, roles: reported.roles }
 }
 
 export type SessionSource = 'sso' | 'local' | 'pat' | 'dev' | 'none'

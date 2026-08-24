@@ -9,6 +9,7 @@ import {
   resolveSession,
   rolesFromGroups,
   setCurrentToken,
+  withReportedRoles,
 } from './auth-token'
 
 /** Mint an unsigned JWT-shaped token (client never verifies signatures). */
@@ -74,6 +75,54 @@ describe('rolesFromGroups', () => {
     ])
     expect(rolesFromGroups(['/unrelated'])).toEqual([])
     expect(rolesFromGroups([])).toEqual([])
+  })
+})
+
+describe('withReportedRoles', () => {
+  const base: Identity = {
+    subject: 'admin',
+    email: 'admin@example.com',
+    groups: ['mobula-admins', 'team-a'],
+    roles: [], // client-side parse missed the deployment's group names
+  }
+
+  it('adopts the backend-reported roles over the session identity', () => {
+    const reported: Identity = {
+      subject: 'a1b2-uuid',
+      groups: ['mobula-admins'],
+      roles: ['admin'],
+    }
+    expect(withReportedRoles(base, reported)).toEqual({
+      subject: 'admin',
+      email: 'admin@example.com',
+      groups: ['mobula-admins', 'team-a'],
+      roles: ['admin'], // authorization comes from the server
+    })
+  })
+
+  it('keeps display fields (subject, email, groups) from the token', () => {
+    const merged = withReportedRoles(base, {
+      subject: 'uuid',
+      groups: [],
+      roles: ['operator', 'developer'],
+    })
+    expect(merged.subject).toBe('admin')
+    expect(merged.email).toBe('admin@example.com')
+    expect(merged.groups).toEqual(['mobula-admins', 'team-a'])
+    expect(merged.roles).toEqual(['operator', 'developer'])
+  })
+
+  it('falls back to the provisional roles when the server has not answered', () => {
+    const provisional: Identity = { ...base, roles: ['viewer'] }
+    expect(withReportedRoles(provisional, null)).toBe(provisional)
+    expect(withReportedRoles(provisional, undefined)).toBe(provisional)
+  })
+
+  it('demotes correctly: an empty reported role set removes access', () => {
+    const provisional: Identity = { ...base, roles: ['admin'] }
+    expect(withReportedRoles(provisional, { ...base, roles: [] }).roles).toEqual(
+      [],
+    )
   })
 })
 
