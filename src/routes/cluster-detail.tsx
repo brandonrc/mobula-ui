@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
 import { useCanManageClusters } from '@/auth/permissions'
+import { ClusterJobsTab, ClusterNodesTab } from '@/components/cluster-tabs'
 import { ClusterStateBadge } from '@/components/cluster-state-badge'
 import { ApiErrorState, EmptyState } from '@/components/empty-state'
 import { PageHeader } from '@/components/page-header'
@@ -28,15 +29,16 @@ import {
 import { cn } from '@/lib/utils'
 
 /**
- * Tab layout from spec §5.4. Only Overview has a backend today
- * (`GET /api/v1/clusters/{id}`); the rest are specced in api-v1.md but
- * unbacked, so they render an explicit pending-backend empty state rather
- * than a mock.
+ * Tab layout from spec §5.4. Overview (`GET /api/v1/clusters/{id}`), Nodes
+ * (`GET /api/v1/clusters/{id}/nodes`) and Jobs (`GET
+ * /api/v1/clusters/{id}/jobs`) are backed today; the rest are specced in
+ * api-v1.md but unbacked, so they render an explicit pending-backend empty
+ * state rather than a mock.
  */
 const TABS = [
   { id: 'overview', label: 'Overview', note: '' },
-  { id: 'nodes', label: 'Nodes', note: 'Head + worker-group breakdown. Pending backend — needs GET /api/v1/clusters/{id}/nodes (api-v1.md §5.3, observability-only per D2: scale is group-level, there is no "add node" button).' },
-  { id: 'jobs', label: 'Jobs', note: 'Live jobs for this cluster. Pending backend — the browser-consumable path-based proxy (/api/v1/clusters/{id}/jobs…, api-v1.md §5.6, Milestone C) is not built yet; the UI never constructs raw Ray dashboard URLs.' },
+  { id: 'nodes', label: 'Nodes', note: '' },
+  { id: 'jobs', label: 'Jobs', note: '' },
   { id: 'logs', label: 'Logs', note: 'Streaming log viewer. Pending backend — needs the control-plane WS endpoint (api-v1.md §5.6, Milestone C).' },
   { id: 'metrics', label: 'Metrics', note: 'Native metric views and Grafana deep-links. Pending backend — no per-cluster metrics endpoint exists yet.' },
   { id: 'events', label: 'Events', note: 'Per-cluster audit/transition stream. Pending backend — needs GET /api/v1/clusters/{id}/events (api-v1.md §5.8).' },
@@ -267,6 +269,10 @@ export function ClusterDetailPage() {
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : cluster && activeTab === 'overview' ? (
         <OverviewTab cluster={cluster} />
+      ) : cluster && activeTab === 'nodes' ? (
+        <ClusterNodesTab clusterId={clusterId} />
+      ) : cluster && activeTab === 'jobs' ? (
+        <ClusterJobsTab clusterId={clusterId} />
       ) : (
         <EmptyState
           title={`${tab.label} — pending backend`}
