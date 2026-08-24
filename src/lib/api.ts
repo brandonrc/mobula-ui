@@ -236,6 +236,64 @@ export interface ClusterJobView {
 }
 
 /**
+ * UI-ahead: per-cluster events/metrics/logs (mobula PR #93) — the
+ * metrics/events/logs siblings of nodes/jobs above, hand-fetched until the
+ * generated client is republished. Same failure semantics: 503 → cluster/
+ * source unreachable (`isUnavailable`); 404 → unknown cluster or a backend
+ * that predates the endpoint. Raw snake_case wire shape.
+ */
+
+/** One normalized Kubernetes Event about a cluster object (api-v1.md §5.6a). */
+export interface ClusterEventView {
+  /** `Normal` | `Warning`. */
+  type: string
+  reason?: string | null
+  message?: string | null
+  count: number
+  /** RFC3339. */
+  first_seen?: string | null
+  last_seen?: string | null
+  /** `Kind/name`, e.g. `Pod/foo-head-abc`. */
+  object?: string | null
+}
+
+export interface ClusterEventsView {
+  cluster_id: string
+  events: ClusterEventView[]
+}
+
+/** A resource's used-vs-total pair (cores / device count / bytes). */
+export interface ResourceStat {
+  used: number
+  total: number
+}
+
+/** Normalized cluster resource summary for the metrics tiles (api-v1.md §5.x). */
+export interface ClusterMetricsView {
+  cluster_id: string
+  cpu?: ResourceStat | null
+  gpu?: ResourceStat | null
+  memory?: ResourceStat | null
+  object_store_memory?: ResourceStat | null
+  active_nodes?: number | null
+  pending_nodes?: number | null
+  failed_nodes?: number | null
+}
+
+/** Tail-capped pod logs (api-v1.md §5.6b, non-streaming first cut). */
+export interface ClusterLogsView {
+  cluster_id: string
+  /** Tailable pod names (head first) for the pod selector. */
+  pods: string[]
+  /** The pod these `lines` came from. */
+  pod: string
+  tail: number
+  lines: string[]
+  /** `true` when the tail was filled (older lines may exist beyond it). */
+  truncated: boolean
+}
+
+/**
  * UI-ahead: local-auth endpoints (api-v1.md §5.15, ADR-0011) are not yet in
  * the published `@brandonrc/mobula-client` — hand-written here like
  * `Identity`/`RegistryCluster`; delete and import from the client once
@@ -520,6 +578,23 @@ export const api = {
     request<ClusterJobView[]>(
       `/api/v1/clusters/${encodeURIComponent(id)}/jobs`,
     ),
+  clusterEvents: (id: string) =>
+    request<ClusterEventsView>(
+      `/api/v1/clusters/${encodeURIComponent(id)}/events`,
+    ),
+  clusterMetrics: (id: string) =>
+    request<ClusterMetricsView>(
+      `/api/v1/clusters/${encodeURIComponent(id)}/metrics`,
+    ),
+  clusterLogs: (id: string, opts?: { node?: string; tail?: number }) => {
+    const params = new URLSearchParams()
+    if (opts?.node) params.set('node', opts.node)
+    if (opts?.tail != null) params.set('tail', String(opts.tail))
+    const qs = params.toString()
+    return request<ClusterLogsView>(
+      `/api/v1/clusters/${encodeURIComponent(id)}/logs${qs ? `?${qs}` : ''}`,
+    )
+  },
   jobs: () => call(() => jobsApi.listJobs()),
   pools: () => call(() => poolsApi.listPools()),
   pool: (name: string) => call(() => poolsApi.getPool({ name })),
