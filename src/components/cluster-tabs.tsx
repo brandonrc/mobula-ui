@@ -462,7 +462,12 @@ function gib(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(1)}`
 }
 
-/** A used/total stat tile with a meter bar. `render` formats each number. */
+/**
+ * A resource stat tile. When live utilization is known (`stat.used != null`)
+ * it shows used/total with a meter; otherwise it shows the capacity only (a
+ * non-autoscaling cluster reports no live `used`). `render` formats each
+ * number.
+ */
 function StatTile({
   label,
   stat,
@@ -474,37 +479,52 @@ function StatTile({
   unit: string
   render: (n: number) => string
 }) {
+  const hasUsed = stat.used != null
   const pct =
-    stat.total > 0
-      ? Math.min(100, Math.max(0, (stat.used / stat.total) * 100))
+    hasUsed && stat.total > 0
+      ? Math.min(100, Math.max(0, ((stat.used as number) / stat.total) * 100))
       : 0
   return (
     <Card>
       <CardContent className="space-y-2 pt-6">
         <div className="text-xs font-medium text-muted-foreground">{label}</div>
-        <div className="text-2xl font-semibold tabular-nums">
-          {render(stat.used)}
-          <span className="text-base font-normal text-muted-foreground">
-            {' / '}
-            {render(stat.total)} {unit}
-          </span>
-        </div>
-        <div
-          className="h-2 w-full overflow-hidden rounded-full bg-muted"
-          role="meter"
-          aria-valuenow={Math.round(pct)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label={`${label} utilization`}
-        >
-          <div
-            className="h-full rounded-full bg-primary transition-all"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        <div className="text-xs tabular-nums text-muted-foreground">
-          {Math.round(pct)}% used
-        </div>
+        {hasUsed ? (
+          <>
+            <div className="text-2xl font-semibold tabular-nums">
+              {render(stat.used as number)}
+              <span className="text-base font-normal text-muted-foreground">
+                {' / '}
+                {render(stat.total)} {unit}
+              </span>
+            </div>
+            <div
+              className="h-2 w-full overflow-hidden rounded-full bg-muted"
+              role="meter"
+              aria-valuenow={Math.round(pct)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label={`${label} utilization`}
+            >
+              <div
+                className="h-full rounded-full bg-primary transition-all"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <div className="text-xs tabular-nums text-muted-foreground">
+              {Math.round(pct)}% used
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="text-2xl font-semibold tabular-nums">
+              {render(stat.total)}
+              <span className="ml-1 text-base font-normal text-muted-foreground">
+                {unit}
+              </span>
+            </div>
+            <div className="text-xs text-muted-foreground">capacity</div>
+          </>
+        )}
       </CardContent>
     </Card>
   )
