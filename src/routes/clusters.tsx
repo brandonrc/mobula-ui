@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { TriangleAlert } from 'lucide-react'
+import { useState } from 'react'
 import { Link } from 'react-router'
 
 import { useCanManageClusters } from '@/auth/permissions'
@@ -12,7 +13,11 @@ import { PageHeader } from '@/components/page-header'
 import { Button } from '@/components/ui/button'
 import { api, clusterViewState } from '@/lib/api'
 import type { ClusterView } from '@/lib/api'
-import { conditionPresentation, formatHourlyCost } from '@/lib/clusters'
+import {
+  conditionPresentation,
+  formatHourlyCost,
+  partitionTerminated,
+} from '@/lib/clusters'
 
 const columns: ColumnDef<ClusterView>[] = [
   {
@@ -103,12 +108,19 @@ const columns: ColumnDef<ClusterView>[] = [
  */
 export function ClustersPage() {
   const canManage = useCanManageClusters()
+  const [showTerminated, setShowTerminated] = useState(false)
   const query = useQuery({
     queryKey: ['clusters'],
     queryFn: api.clusters,
     retry: false,
     refetchInterval: 30_000,
   })
+
+  // Terminated clusters are tombstones (terminal, no longer exist) and
+  // clutter the list, so hide them by default behind a toggle. They stay
+  // openable — the detail route renders Terminated + the empty tabs.
+  const { active, terminated } = partitionTerminated(query.data ?? [])
+  const rows = showTerminated ? [...active, ...terminated] : active
 
   return (
     <>
@@ -146,7 +158,27 @@ export function ClustersPage() {
           }
         />
       ) : (
-        <DataTable columns={columns} data={query.data} />
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-sm text-muted-foreground">
+              {rows.length} {rows.length === 1 ? 'cluster' : 'clusters'}
+              {!showTerminated && terminated.length > 0
+                ? ` · ${terminated.length} terminated hidden`
+                : null}
+            </p>
+            {terminated.length > 0 ? (
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={showTerminated}
+                  onChange={(e) => setShowTerminated(e.target.checked)}
+                />
+                Show terminated
+              </label>
+            ) : null}
+          </div>
+          <DataTable columns={columns} data={rows} />
+        </div>
       )}
     </>
   )
